@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..analysis.gating import direct_segment
 from ..analysis.quality import check_sweep
 from ..analysis.response import Response, log_grid
+from ..analysis.waterfall import keep_ir
 from ..config import SystemConfig, TimingMode
 from ..minidsp.client import MiniDSPClient
 from ..minidsp.state import DspState, OutputState
@@ -170,5 +171,11 @@ class Rig:
         if bs.enabled and bs.use_gating and len(roles) == 1 and roles[0] in bs.pair and kind in ("solo", "manual"):
             ir, fs = await self.rew.impulse_response(rec.id)
             self.s.add_direct(rec.id, direct_segment(ir, fs, bs, self.cfg.tuning.alignment.arrival_onset_fraction))
+        if kind in ("system", "listening"):  # full-system sweeps keep a short impulse for the waterfall
+            try:
+                ir, fs = await self.rew.impulse_response(rec.id)
+                self.s.add_ir(rec.id, keep_ir(ir, fs, self.cfg.dashboard.waterfall))
+            except RewError:
+                pass  # the waterfall is a nicety; never fail a sweep over it
         self.s.add_measurement(rec, resp)
         return rec, resp

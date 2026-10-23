@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from importlib import resources
 
-GROUPS = ("color", "space", "line", "font", "chart", "motion", "layout")
+GROUPS = ("color", "space", "line", "font", "chart", "motion", "layout", "waterfall")
 
 
 def load_tokens() -> dict:

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { State } from "./api";
 import { ActionCard } from "./Cards";
 import { ResponseChart } from "./Chart";
+import { Waterfall } from "./Waterfall";
 
 const fmt = (v: unknown, unit = " dB") => (v === undefined || v === null ? "–" : `${v}${unit}`);
 
@@ -9,7 +10,9 @@ export function StatusView({ state, pair }: { state: State; pair: { url: string;
   const m = state.metrics || {};
   const seats = Object.keys(state.curves || {});
   const [seat, setSeat] = useState<string | null>(null);
-  const c = state.curves?.[seat && seats.includes(seat) ? seat : seats[0]];
+  const [view, setView] = useState<"response" | "waterfall">("response");
+  const shown = seat && seats.includes(seat) ? seat : seats[0];
+  const c = state.curves?.[shown];
   return (
     <div className="status">
       {state.pending_action && !state.crawl && <ActionCard action={state.pending_action} />}
@@ -22,15 +25,21 @@ export function StatusView({ state, pair }: { state: State; pair: { url: string;
       </dl>
       {c && (
         <>
-          {seats.length > 1 && (
-            <div className="segmented">{seats.map((s) => (
-              <button key={s} className={s === (seat ?? seats[0]) ? "on" : ""} onClick={() => setSeat(s)}>{s}</button>))}</div>
-          )}
-          <ResponseChart series={[
+          <div className="chart-bar">
+            <div className="segmented">
+              <button className={view === "response" ? "on" : ""} onClick={() => setView("response")}>Response</button>
+              <button className={view === "waterfall" ? "on" : ""} onClick={() => setView("waterfall")}>Waterfall</button>
+            </div>
+            {seats.length > 1 && (
+              <div className="segmented">{seats.map((s) => (
+                <button key={s} className={s === shown ? "on" : ""} onClick={() => setSeat(s)}>{s}</button>))}</div>
+            )}
+          </div>
+          {view === "waterfall" ? <Waterfall seat={shown} version={state.version} /> : <ResponseChart series={[
             { kind: "measured", points: c.measured || [] },
             { kind: "predicted", points: c.predicted || [] },
             { kind: "target", points: c.target || [] },
-          ]} />
+          ]} />}
         </>
       )}
       {state.fails && state.fails.length > 0 && <ul className="plain">{state.fails.map((f) => <li key={f}>{f[0].toUpperCase() + f.slice(1)}</li>)}</ul>}

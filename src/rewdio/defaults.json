@@ -266,7 +266,21 @@
     ],
     "chart_ppo": 24,
     "chart_smoothing": 6,
-    "allow_lan": false
+    "allow_lan": false,
+    "waterfall": {
+      "hz": [
+        15.0,
+        300.0
+      ],
+      "ppo": 24,
+      "smoothing": 12,
+      "window_ms": 300.0,
+      "step_ms": 20.0,
+      "slices": 18,
+      "floor_db": -40.0,
+      "ir_fs": 2000.0,
+      "ir_ms": 900.0
+    }
   },
   "balance": {
     "enabled": true,

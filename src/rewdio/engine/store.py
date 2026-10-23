@@ -94,6 +94,14 @@ class Session:
         p = self.dir / "data" / f"{mid}.direct.json"
         return DirectSegment.from_dict(json.loads(p.read_text())) if p.exists() else None
 
+    def add_ir(self, mid: str, stored: dict) -> None:
+        self._write(f"data/{mid}.ir.json", stored)
+
+    def ir(self, mid: str) -> dict | None:
+        """The short, resampled impulse kept for the waterfall, or None."""
+        p = self.dir / "data" / f"{mid}.ir.json"
+        return json.loads(p.read_text()) if p.exists() else None
+
     def response(self, mid: str) -> Response:
         return Response.from_dict(json.loads((self.dir / "data" / f"{mid}.json").read_text()))
 

@@ -104,6 +104,9 @@ button.on, button.solid { background: var(--color-ink); color: var(--color-paper
 .series.target { stroke-dasharray: var(--chart-dash-target); stroke-width: 1; }
 .chart figcaption { display: flex; gap: var(--space-4); font-size: var(--font-size-sm); margin-top: var(--space-2); }
 .chart figcaption span { display: inline-flex; align-items: center; gap: var(--space-2); }
+.chart-bar { display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.wf-slice { fill-opacity: .82; stroke: var(--color-ink); stroke-width: .5; stroke-opacity: .45; }
+.waterfall .axis { stroke: var(--color-ink-faint); stroke-width: 1; }
 .qr { width: 200px; max-width: 100%; justify-self: center; border: var(--line-hair) solid var(--color-line); }
 .log summary { cursor: pointer; font-weight: var(--font-weight-medium); padding: var(--space-3) 0;
   border-top: var(--line-hair) solid var(--color-line); }
