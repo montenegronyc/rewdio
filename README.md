@@ -87,7 +87,7 @@ A ready-made config for this layout is in
 ## Install
 
 ```bash
-git clone https://github.com/montenegronyc/rewdio-mcp && cd rewdio-mcp
+git clone https://github.com/montenegronyc/rewdio && cd rewdio
 uv sync
 ```
 
