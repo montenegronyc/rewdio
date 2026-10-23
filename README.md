@@ -5,6 +5,11 @@ An MCP server that lets Claude calibrate a subwoofer + mains system on its own. 
 polarity, PEQ), reads every result, and keeps looping until level, timing, phase and response
 targets are met. You only get asked to do physical things: move the mic, move a sub.
 
+<p>
+  <img src="docs/img/crawl.gif" width="270" alt="The sub crawl on a phone: the next grid spot in large type, pulsing on the room plan">
+  <img src="docs/img/ab.gif" width="270" alt="A/B switching between two saved setups, then a blind comparison">
+</p>
+
 ## What it does
 
 1. **Runs sweeps itself.** Configures REW's sweep, level, timing reference, protection limits and
@@ -18,8 +23,10 @@ targets are met. You only get asked to do physical things: move the mic, move a 
 4. **Reverse-calculates dual-sub placement.** By acoustic reciprocity, putting the sub at the seat
    and moving the mic through candidate sub spots gives the same responses as moving the sub.
    Rewdio then ranks every pair of spots as a coherent sum with its best delay/gain/polarity.
-5. **PEQ as a last resort.** Only when alignment alone misses the target. Cut-biased, boosts capped
-   at +3 dB, and seat-dependent nulls are left alone.
+5. **PEQ as a last resort, and light.** It is never used on the first pass: Rewdio first applies and
+   verifies what gain, delay and polarity alone achieve. Only if that verified result misses the target
+   is PEQ considered. It is cut-only, at most −6 dB and 3 filters, and has to earn its place. See
+   "Restraint".
 
 Every sweep passes a quality gate (SNR, clipping, dead channel, repeatability) before it can feed the
 solver. Every change is predicted, applied, then verified by a real sweep. If prediction and measurement
@@ -34,10 +41,46 @@ the physical limit is (usually sub placement).
 | **REW 5.40+ with the API enabled** | `roomeqwizard -api`, or Preferences > API. **API-triggered sweeps need a [REW Pro upgrade](https://www.roomeqwizard.com/upgrades.html).** Default `http://127.0.0.1:4735`. |
 | **[minidsp-rs](https://github.com/mrene/minidsp-rs) daemon** (`minidspd`) | miniDSP has no official API; minidsp-rs is the de facto one. Rewdio talks to its HTTP API on the unix socket `/tmp/minidsp.sock` (default) or `http://127.0.0.1:5380` (enable `[http_server]` in its config). Keep the miniDSP plugin closed while calibrating so only one program is talking to the unit. |
 | Measurement mic | SoundID Reference (XLR, phantom power) into your interface. Download its per-serial cal file from Sonarworks and pass it as `mic_cal_path`. |
-| Optional: loopback cable | One interface output into a second input, REW timing reference set to loopback. Gives absolute phase and the most reliable sub crawl. Without it, Rewdio uses **sum-fit** timing (below). |
+| Recommended: loopback | A tap of the playback signal, taken *before* the miniDSP, into a second interface input, with REW's timing reference set to loopback. It gives absolute phase, 6 fewer sweeps per pass and the most reliable sub crawl. Without it, Rewdio uses **sum-fit** timing (below). See "Wiring" for how. |
 
-Assumed signal chain: REW > interface (or the miniDSP's own USB audio) > miniDSP inputs >
-outputs L, R, SUB1, SUB2 > amps. Change the channel map with `configure` if yours differs.
+Assumed signal chain: REW > DAC or interface > miniDSP analog inputs > outputs L, R, SUB1, SUB2 > amps.
+Change the channel map with `configure` if yours differs.
+
+### Wiring
+
+**Record and play on a shared timeline.** Don't play through one USB device and record on an unrelated
+one with no reference. Their clocks drift and there's no common time base, which hurts timing in every
+mode. Either play and record on one interface, or keep your own DAC and add a loopback tap (below).
+
+**With your own DAC chain** (for example USB-to-S/PDIF converter > DAC > miniDSP), add a small two-input
+interface (for example a Scarlett 2i2) for recording only:
+
+```
+Computer --USB--> converter --coax--> DAC --RCA--> miniDSP --> amps
+                                       |
+                       left RCA via Y-splitter --> interface input 2 (line, Inst off, gain min)  <- loopback
+Measurement mic --XLR--> interface input 1 (48V)
+miniDSP --USB--> computer (control only, for minidsp-rs)
+```
+
+- The loopback records the DAC's real output, so the converter and DAC latency drop out. The miniDSP,
+  the amps and the distance stay in the measurement; that's what gets aligned.
+- On macOS, an Aggregate Device in Audio MIDI Setup (playback device plus interface, with drift
+  correction on the interface) removes even the small clock mismatch. Select it in REW for input and
+  output.
+- S/PDIF DACs can take a moment to lock, clipping the start of a sweep. `sweep.fill_silence_with_dither`
+  (on by default) keeps the stream alive, and `sweep.start_delay_s: 2` adds margin.
+- Set REW, the converter and the interface to the same sample rate (48 kHz).
+- In loopback mode, preflight mutes every miniDSP output, plays pink noise and checks that it arrives on
+  the reference input. The room stays silent, and a missing splitter or wrong REW input is caught before
+  the first sweep.
+- Servo or analog sub plates (for example Rythmik): set the amp's own low-pass to bypass or its maximum,
+  phase to 0, and leave all its knobs alone during a run. The miniDSP does the crossover, and Rewdio
+  trims level, delay and polarity.
+
+A ready-made config for this layout is in
+[`examples/configs/dac-chain-2x4hd-loopback.json`](examples/configs/dac-chain-2x4hd-loopback.json). Copy it to
+`~/.rewdio/config.json` and set `mic_cal_path`.
 
 ## Install
 
@@ -131,7 +174,8 @@ depends on what's available:
 | Tool | Purpose |
 |---|---|
 | `rewdio_status` | connectivity, config, phase, pending user action |
-| `configure` | channel map, crossover, timing mode, seats, room, targets, limits |
+| `setup_status`, `save_settings`, `test_setup` | the setup wizard (see `setup` prompt) |
+| `configure` | same as `save_settings` (kept for compatibility) |
 | `autopilot_step` | run the loop until it needs you or finishes |
 | `confirm_user_action` | report a physical task done (with optional x/y/z) |
 | `get_report` | applied settings, predicted vs measured metrics, notes |
@@ -139,25 +183,133 @@ depends on what's available:
 | `measure`, `analyze_measurement`, `list_measurements` | manual sweeps and summaries |
 | `set_channel`, `solo`, `get_dsp_state` | direct miniDSP control |
 | `set_mic_calibration` | load the mic cal file into REW |
+| `list_setups`, `save_setup`, `recall_setup`, `delete_setup` | named, dated DSP setups for A/B listening |
 | `reset_calibration` | start over (measurements kept) |
 | `dashboard_url` | where the live dashboard is running |
 
 Also an MCP prompt, `calibrate`, which walks the model through the loop with explicit pause points,
 and three resources: `rewdio://session/report`, `rewdio://session/config` and `rewdio://session/dsp`.
 
-### Live dashboard
+### Phone remote and the crawl grid
 
-While the server runs, open **http://127.0.0.1:8765/**, or run `rewdio-dashboard` to view a session on its
-own. It shows:
-- the phase, and what Rewdio is waiting on you to do
-- bass deviation, crossover summation and prediction error
-- measured vs predicted vs target response at each seat
-- the miniDSP settings
-- quality and cross-check results, the solver's notes, and the log
+For the sub crawl you're down on the floor with a mic, so the crawl runs from your phone.
 
-Styling comes entirely from design tokens in `src/rewdio/dashboard/tokens.json`, which are compiled to CSS
-custom properties for light and dark themes. Edit that file to restyle the dashboard; a test fails if
-`styles.css` contains a literal colour.
+```json
+{ "do_sub_crawl": true, "room_dims_m": [5.8, 4.3, 2.6], "dashboard": { "allow_lan": true } }
+```
+
+1. Start Rewdio. Open **http://127.0.0.1:8765/** on the computer, go to **Status** and scan the pairing QR
+   code with your phone. Add the page to your home screen: it runs full-screen and keeps the screen on.
+2. **Mark A1** with a tape measure: 35 cm out from the front wall and 35 cm out from the left wall. Rows
+   are letters going back into the room; columns are numbers going right. Every step is 75 cm, and the
+   last row and column sit 35 cm from the back and right walls, so every corner is a spot.
+3. The phone shows the next spot in huge letters (**C5**, with its distances from the walls). That spot
+   pulses on the room plan. Put the mic there and tap **Mic is here**. Rewdio runs the sweep and the
+   spot fills in: the darker it is, the better one sub there would be at your seat.
+4. Tap any spot a sub can't go (sofa, doorway) to skip it.
+5. At the end, the phone shows where to put the subs (**SUB1 → A3, SUB2 → H5**) as squares joined by a line.
+
+<p>
+  <img src="docs/img/crawl-setup.png" width="240" alt="Mark A1">
+  <img src="docs/img/crawl-target.png" width="240" alt="Mid-crawl: the current spot and the spots measured so far">
+  <img src="docs/img/crawl-place.png" width="240" alt="Where the subs go">
+</p>
+
+By default only the outer ring of the grid is visited (`crawl_grid.mode: "perimeter"`), because subs live
+near walls. The route snakes so you walk the shortest path. Spacing, the A1 offsets, mic height and
+skipped cells are under `crawl_grid` in the config.
+
+**Pairing and safety.** These pages make your speakers play:
+- Only the computer running Rewdio and devices paired by QR code can act on them.
+- Network access is off until you set `dashboard.allow_lan`.
+- One driver at a time: if Claude and the phone both try to advance the run, they take turns.
+
+`rewdio-dashboard` runs the same GUI on its own, so the phone can drive a whole calibration without Claude.
+The front end is React + TypeScript in `web/`. It's built into the package, so you don't need Node to run
+Rewdio; run `cd web && npm install && npm run build` only if you change it.
+
+### The GUI
+
+One page at **http://127.0.0.1:8765/**, on the computer or a paired phone, with four tabs:
+- **Room:** the crawl grid and the next spot.
+- **Status:** phase, bass deviation, crossover summation, L/R balance, and measured / predicted / target
+  response at each seat. Open the log underneath it.
+- **Setups:** saved setups and the A/B switch (below).
+- **Settings:** the setup wizard.
+
+<p>
+  <img src="docs/img/status.png" width="240" alt="Status">
+  <img src="docs/img/settings.png" width="240" alt="Settings">
+</p>
+
+The look is monochrome: cream and black, Public Sans (Light, Medium, SemiBold, bundled so it works
+offline), hairline dividers and rectangular controls. Colour is reserved for waterfall plots. Every value
+comes from design tokens in `src/rewdio/dashboard/tokens.json`, compiled to CSS custom properties; tests
+fail if the stylesheet contains a literal colour or a rounded corner, or if the tokens contain anything but
+cream and black.
+
+### Setups and A/B listening
+
+A setup is a snapshot of everything Rewdio manages on the miniDSP (gain, delay, polarity, PEQ on every
+output), saved as a named, dated file: `~/.rewdio/setups/2026-10-23_0912_calibrated.json`. A finished
+calibration saves itself as **Calibrated**. Save more candidates from the **Setups** tab or by asking
+Claude ("save this as Late night, less bass").
+
+To compare by ear, tap **A** or **B** on two setups, then tap the big A and B keys to switch. Each switch
+writes the whole setup to the miniDSP in one go, with every output playing. **Blind** relabels them 1 and
+2 in a random order and hides which one is active, until you tap **Reveal**.
+
+<p>
+  <img src="docs/img/setups.png" width="240" alt="Two setups on A and B">
+  <img src="docs/img/setups-blind.png" width="240" alt="Blind comparison">
+</p>
+
+Each setup carries a small response thumbnail and its bass deviation when it was swept as-is. If you
+save one Claude hasn't measured, `save_setup` with `measure_first` takes one sweep first. The setup on the
+miniDSP is marked by comparing files with the DSP, so the mark is always current. The folder can be moved
+with `setups.dir`.
+
+Louder usually sounds better, so keep that in mind when two setups differ in overall level.
+
+### Restraint: as little DSP as possible
+
+The solver works up a ladder and stops at the first rung that is good enough:
+
+1. **Physical fixes** (sub placement via the crawl, mic positions). Diagnostics point here when the
+   limit is the room.
+2. **Gain, delay, polarity.** No tonal change. Changes smaller than 0.25 dB or 0.05 ms are not
+   written at all, and a sub's polarity only flips when that clearly sums better than a delay.
+3. **PEQ, as a last resort.** It is unlocked only after a verified pass without PEQ misses the target.
+   It is then re-solved from the same, already-validated sweeps. PEQ is:
+   - **cut-only** by default (`max_peq_boost_db: 0`), at most **−6 dB**, at most **3 filters**
+   - fitted with a penalty on gain, so of two equally good fits the lighter one wins
+   - judged only on peaks above target, because cuts cannot fill nulls and so nulls never count
+     against or for a filter
+   - kept per filter only if that filter improves things by at least 0.5 dB
+   - **used at all only if it earns its place:** it must knock the worst peak in its band down by at
+     least 3 dB, or lower the total peak excess by at least 1 dB, and never make the overall bass
+     deviation worse. Otherwise it is rejected, and the log says by how much it fell short.
+
+Every report includes a **DSP footprint**: filter count, total EQ in dB, the deepest cut, the largest
+boost, inverted channels and the gain range. All thresholds live under `tuning.peq`,
+`tuning.restraint` and `balance` in the config.
+
+### Left/right balance (centre image)
+
+Rewdio matches L and R, not just their overall level:
+- It fetches each main's impulse response from REW and keeps only the **direct sound**, closing the
+  gate just before the first strong reflection. Your ears localise from the first-arriving sound
+  (precedence effect), so this is the balance that sets the centre image. Steady-state curves at the
+  seat are dominated by reflection combs.
+- Both channels use the same gate length, so neither side's level is biased.
+- The louder side gets a broadband trim. What remains is fixed with up to 3 broad, low-Q filters split
+  half and half (+g/2 on one side, −g/2 on the other), capped at 1.0 dB per side. The centre moves;
+  the overall tone doesn't.
+- It only judges what the gate can resolve. With a reflection 2.5 ms after the direct sound, that's
+  above about 800 Hz. More mic positions around the seat average out reflection combs.
+
+Settings are under `balance` in the config (band, gate limits, filter caps, and PEQ slots 7–9 on the
+mains outputs). The report and dashboard show the L/R difference before and after.
 
 ### Safety and checks
 
@@ -173,15 +325,37 @@ custom properties for light and dark themes. Edit that file to restyle the dashb
   boundary-cancellation (SBIR) hints with the implied distance. With several seats, seat-to-seat spread and
   outlier seats are reported.
 
+### Setup wizard
+
+You don't need to edit JSON. Use either:
+- **In the browser:** the **Settings** tab at http://127.0.0.1:8765/ (on the computer, or on a paired phone).
+  Nine steps:
+  1. Connections, with Test buttons for REW and the miniDSP
+  2. Your miniDSP model (sets the DSP sample rate)
+  3. Mic calibration file (checked to exist)
+  4. Which output feeds which speaker
+  5. Timing (loopback or not)
+  6. Room size and seats
+  7. Crawl grid
+  8. Crossover and target
+  9. Phone access
+- **In Claude:** ask it to set you up, or use the `setup` prompt. Claude walks through the same steps in
+  conversation and accepts answers like "the room is about 19 by 14 feet".
+
+Both save to your settings file (`~/.rewdio/config.json`), keeping only what differs from the defaults.
+Every save is validated first, so a bad value is explained and nothing is written. Changes take effect
+immediately. The steps themselves are defined in `src/rewdio/wizard.json`.
+
 ### Configuration
 
-Every number lives in JSON; nothing is hard-coded in Python.
+Every number lives in JSON; nothing is hard-coded in Python. The setup wizard writes this for you.
 
 1. `src/rewdio/defaults.json` ships every default: rig, sweep, convergence targets, and a `tuning`
    section with every solver band, threshold, grid step and limit.
 2. Your file at `~/.rewdio/config.json` (or `$REWDIO_CONFIG`) overrides any subset. A typo in a key is
    rejected, not ignored.
-3. The `configure` tool layers per-session changes on top, which are saved with the session.
+3. There is one settings file. Sessions store only measurements and run state, so a settings change
+   applies to every session, including one already in progress.
 
 Example `~/.rewdio/config.json`:
 
@@ -228,6 +402,14 @@ the subs. See [docs/PLAN.md](docs/PLAN.md) for the design and
 [docs/research/polycam.md](docs/research/polycam.md) evaluates importing a Polycam/RoomPlan room scan.
 
 Every module is kept under 500 lines, and a test enforces it.
+
+The README images are captured from the real GUI driving a simulated calibration:
+
+```bash
+uv run python docs/capture/serve.py /tmp/rewdio-capture 8799 &
+node docs/capture/capture.mjs http://127.0.0.1:8799/ /tmp/rewdio-shots   # needs Playwright
+sh docs/capture/gifs.sh /tmp/rewdio-shots docs/img                       # needs ffmpeg
+```
 
 ## Credits
 

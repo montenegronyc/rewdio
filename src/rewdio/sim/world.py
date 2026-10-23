@@ -30,7 +30,7 @@ class Room:
     f_max_mode: float
     transition_hz: tuple[float, float] = (180.0, 400.0)
     diffuse_scale: float = 0.5
-    reflections: list[tuple[float, float]] = field(default_factory=lambda: [(2.5, 0.6), (6.0, 0.5), (11.0, 0.4)])
+    reflections: list[tuple] = field(default_factory=lambda: [(2.8, 0.5, "specular"), (9.0, 0.4, "diffuse")])
 
     def __post_init__(self):
         L = np.array(self.dims)
@@ -70,11 +70,19 @@ class Room:
         rng = np.random.default_rng(int.from_bytes(key[:8], "little"))  # symmetric in src/mic
         knots = np.geomspace(100, 25000, 160)
         reverb = np.zeros(f.shape, complex)
-        for t_ms, amp in self.reflections:  # reflections arrive after the direct sound, decaying
-            rip = rng.normal(size=knots.size) + 1j * rng.normal(size=knots.size)
-            rp = np.interp(np.log(f), np.log(knots), rip.real) + 1j * np.interp(np.log(f), np.log(knots), rip.imag)
-            reverb += amp * rp * np.exp(-2j * np.pi * f * (r / C + t_ms / 1000))
-        hf = delay / r + self.diffuse_scale * reverb / (np.sqrt(2) * self.critical_distance)
+        early = np.zeros(f.shape, complex)
+        for refl in self.reflections:
+            t_ms, amp = refl[0], refl[1]
+            if len(refl) > 2 and refl[2] == "specular":
+                # a delayed, quieter copy of the direct sound; timing depends on the geometry of this pair
+                t = t_ms + rng.uniform(-0.7, 0.7)
+                hf_loss = 1.0 / np.sqrt(1.0 + (f / 8000.0) ** 2)
+                early += amp * hf_loss * np.exp(-2j * np.pi * f * (r / C + t / 1000)) / r
+            else:  # diffuse tail: decaying, decorrelated
+                rip = rng.normal(size=knots.size) + 1j * rng.normal(size=knots.size)
+                rp = np.interp(np.log(f), np.log(knots), rip.real) + 1j * np.interp(np.log(f), np.log(knots), rip.imag)
+                reverb += amp * rp * np.exp(-2j * np.pi * f * (r / C + t_ms / 1000))
+        hf = delay / r + early + self.diffuse_scale * reverb / (np.sqrt(2) * self.critical_distance)
         a, b = self.transition_hz
         x = np.clip((np.log2(f) - np.log2(a)) / (np.log2(b) - np.log2(a)), 0, 1)
         wgt = 0.5 - 0.5 * np.cos(np.pi * x)
@@ -87,12 +95,13 @@ class Speaker:
     pos: tuple[float, float, float]
     kind: str  # "main" | "sub"
     dsp_output: int
-    model: list[list]  # [[type, f0, q], ...] driver/box response
+    model: list[list]  # [[type, f0, q(, gain_db)], ...] driver/box response
     latency_ms: float = 0.0
     sensitivity_db: float = 112.0  # SPL at 1 m for a 0 dBFS drive through unity DSP
 
     def response(self, f: np.ndarray, fs: float) -> np.ndarray:
-        h = cascade_response([design(k, min(f0, fs * 0.45), fs, q=q) for k, f0, q in self.model], f, fs)
+        h = cascade_response([design(m[0], min(m[1], fs * 0.45), fs, gain_db=m[3] if len(m) > 3 else 0.0, q=m[2])
+                              for m in self.model], f, fs)
         return 10 ** (self.sensitivity_db / 20) * P_REF * h * np.exp(-2j * np.pi * f * self.latency_ms / 1000)
 
 

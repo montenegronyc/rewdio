@@ -21,7 +21,7 @@ def sim_runtime(tmp_path):
     rts = []
 
     def make(**cfg):
-        rt = Runtime("t", root=str(tmp_path), simulate=True)
+        rt = Runtime(f"t{len(rts)}", root=str(tmp_path), simulate=True)
         for k, v in cfg.items():
             setattr(rt.session.config, k, v)
         rt.session.save()

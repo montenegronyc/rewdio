@@ -5,11 +5,20 @@ from __future__ import annotations
 from ...analysis.placement import Candidate, geometric_correction, rank_positions
 from ...analysis.target import target_db
 from ...config import TimingMode
+from ..grid import build_grid, route, setup_instructions
 from .base import PhaseBase
 
 
 class CrawlPhase(PhaseBase):
+    def grid_cells(self) -> list[dict]:
+        if not self.cfg.room_dims_m:
+            raise RuntimeError("the crawl grid needs room_dims_m (length, width, height); set it with configure")
+        return build_grid(self.cfg.room_dims_m, self.cfg.crawl_grid, set(self.wf.crawl.get("excluded", [])))
+
     def _crawl_spots(self) -> list[dict]:
+        g = self.cfg.crawl_grid
+        if g.enabled:
+            return [{"label": c["code"], "xyz": c["xyz"], "cell": c} for c in route(self.grid_cells(), g.max_cells)]
         n = self.cfg.crawl_positions
         dims = self.cfg.room_dims_m
         ct = self.cfg.tuning.crawl
@@ -35,17 +44,30 @@ class CrawlPhase(PhaseBase):
                                      f"driver as close to ear height as practical (on the seat), facing where you face. "
                                      f"Keep any other subs off. Confirm when done.",
                   sim={"move_speaker": sub, "to_seat": seat})
-        spots = crawl.setdefault("spots", self._crawl_spots())
+        g = self.cfg.crawl_grid
+        if g.enabled:
+            spots = self._crawl_spots()  # recomputed each time: cells excluded mid-crawl drop out
+            self._ask("crawl:grid_setup", setup_instructions(g, len(spots)), grid=True)
+        else:
+            spots = crawl.setdefault("spots", self._crawl_spots())
+        crawl["spots"] = spots
         done = crawl.setdefault("measured", {})
         for spot in spots:
             lab = spot["label"]
             if lab in done:
                 continue
             key = f"crawl:mic:{lab}"
-            self._ask(key, f"Move the mic to candidate sub location {lab}"
-                           + (f" (suggested {spot['xyz']} m, origin front-left floor corner)" if spot["xyz"] else "")
-                           + ", at the height the sub's woofer will be (near the floor). Confirm, ideally with the "
-                             "actual x,y,z you used.", mic_to=lab, xyz_suggestion=spot["xyz"])
+            if g.enabled:
+                c = spot["cell"]
+                text = (f"Move the mic to {lab}: {c['from_front_m'] * 100:.0f} cm from the front wall, "
+                        f"{c['from_left_m'] * 100:.0f} cm from the left wall, {g.mic_height_m * 100:.0f} cm off the "
+                        f"floor, pointing at the ceiling. Then tap 'Mic is here'.")
+            else:
+                text = (f"Move the mic to candidate sub location {lab}"
+                        + (f" (suggested {spot['xyz']} m, origin front-left floor corner)" if spot["xyz"] else "")
+                        + ", at the height the sub's woofer will be (near the floor). Confirm, ideally with the "
+                          "actual x,y,z you used.")
+            self._ask(key, text, mic_to=lab, xyz_suggestion=spot["xyz"], cell=lab if g.enabled else None)
             c = self._confirmed(key) or {}
             rec, _ = await self.rig.measure([sub], "crawl", lab, seat=seat, xyz=c.get("xyz") or spot["xyz"])
             done[lab] = {"id": rec.id, "xyz": c.get("xyz") or spot["xyz"]}
@@ -64,7 +86,7 @@ class CrawlPhase(PhaseBase):
         else:
             moves += f" (a second sub at {b} would score {best['std_db']} dB)"
         self._ask("crawl:place_final", f"Placement result: move {moves}. Put the mic back at {seat}. Confirm when done.",
-                  mic_to=seat, recommendation=res["best_pairs"][:3],
+                  mic_to=seat, recommendation=res["best_pairs"][:3], place={roles[i]: p for i, p in enumerate((a, b)[:len(roles)])},
                   sim={"move_subs": {roles[i]: xyz[p] for i, p in enumerate((a, b)[:len(roles)])}})
         self.wf.mic_at = seat
         return "BASELINE"

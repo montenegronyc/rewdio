@@ -52,25 +52,28 @@ class _Problem:
         h = _response(params, self.fm, self.fs)
         p = np.mean(np.abs(self.O[rows] + self.S[rows] * h[None, :]) ** 2, axis=0)
         e = 10 * np.log10(np.maximum(uniform_filter1d(p, self.width, mode="nearest"), 1e-24)) - self.tgt
-        return e - np.average(e, weights=self.weight)
+        return e - np.median(e[self.weight >= 1.0] if (self.weight >= 1.0).any() else e)  # nulls don't drag it
 
     def std(self, params, rows=None) -> float:
+        """What EQ is judged on: error above target, plus dips only if boosts are allowed at all.
+        Nulls cannot be cut away, so with cut-only EQ they do not count against a filter."""
         e = self.err(params, rows)
-        return float(np.sqrt(np.average(e ** 2, weights=self.weight)))
+        dip = self.pq.dip_weight if self.max_boost > 0 else 0.0
+        return float(np.sqrt(np.average(np.where(e < 0, dip * e, e) ** 2, weights=self.weight)))
 
     def fit(self, rows, n_max: int, lo: float, hi: float) -> list[tuple[float, float, float]]:
         pq = self.pq
         params: list[tuple[float, float, float]] = []
         for _ in range(n_max):
             e = self.err(params, rows) * self.weight
-            e_bias = np.where(e > 0, e, pq.dip_weight * e)
+            e_bias = np.where(e > 0, e, (pq.dip_weight if self.max_boost > 0 else 0.0) * e)
             for fc, g, _ in params:  # a filter pinned at its limit cannot do more where it sits
                 if g >= self.max_boost - 0.05 or g <= -pq.max_cut_db + 0.05:
                     e_bias[np.abs(np.log2(self.fm / fc)) < 1 / 3] = 0.0
             k = int(np.argmax(np.abs(e_bias)))
-            if abs(e_bias[k]) < pq.stop_error_db:
+            if abs(e_bias[k]) < pq.stop_error_db or (self.max_boost <= 0 and e_bias[k] <= 0):
                 break
-            g0 = float(np.clip(-e[k], -pq.max_cut_db, self.max_boost))
+            g0 = float(np.clip(-e_bias[k], -pq.max_cut_db, self.max_boost))
             x0 = [v for p in params for v in (np.log(p[0]), p[1], np.log(p[2]))] + [np.log(self.fm[k]), g0, np.log(pq.start_q)]
             n = len(x0) // 3
             lo_b = [v for _ in range(n) for v in (np.log(lo), -pq.max_cut_db, np.log(pq.min_q))]
@@ -82,7 +85,9 @@ class _Problem:
 
             def resid(x):
                 ee = self.err(unpack(x), rows)
-                return np.where(ee < 0, pq.dip_weight, 1.0) * self.weight * ee
+                w = np.where(ee < 0, pq.dip_weight if self.max_boost > 0 else 0.0, 1.0) * self.weight * ee
+                # ridge on gains: of two equally good fits, prefer the lighter one
+                return np.concatenate([w, np.sqrt(pq.gain_penalty * ee.size) * x[1::3]])
 
             trial = unpack(least_squares(resid, x0, bounds=(lo_b, hi_b), max_nfev=pq.max_nfev).x)
             if self.std(trial, rows) > self.std(params, rows) - pq.min_improvement_db:
@@ -100,6 +105,7 @@ def design_peq(freqs: np.ndarray, others: list[np.ndarray], subs: list[np.ndarra
     S = np.array([s[m] for s in subs])
     prob = _Problem(fm, O, S, np.asarray(target_db)[m], 1.0 / np.log2(freqs[1] / freqs[0]), fs, pq, max_boost_db)
     before = prob.std([])
+    n_max = min(n_max, pq.max_filters)
     params = prob.fit(None, n_max, lo, hi)
     held = None
     n_pos = len(others)

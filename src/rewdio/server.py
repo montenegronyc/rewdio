@@ -9,8 +9,8 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from .analysis.metrics import summarize
-from .config import SystemConfig, deep_merge
 from .dashboard.app import serve_in_background
+from .engine import dsp_setups, setup
 from .engine.runtime import Runtime
 from .prompts import register as register_prompts
 
@@ -45,7 +45,7 @@ async def lifespan(_server):
     if not d.enabled:
         yield {}
         return
-    async with serve_in_background(lambda: runtime().session, d.host, d.port) as url:
+    async with serve_in_background(runtime, "0.0.0.0" if d.allow_lan else d.host, d.port) as url:
         _dashboard_url = url
         yield {}
 
@@ -72,6 +72,19 @@ def _clean(obj: Any) -> Any:
     if hasattr(obj, "item") and callable(obj.item):
         return obj.item()
     return obj
+
+
+BUSY = {"ok": False, "message": "a calibration step is running (from the phone or another call); try again when it finishes"}
+
+
+@contextlib.asynccontextmanager
+async def exclusive(rt):
+    """Manual tools must not interleave with a running autopilot step: refuse rather than wait."""
+    if rt.busy:
+        yield False
+        return
+    async with rt.lock:
+        yield True
 
 
 @mcp.tool()
@@ -101,24 +114,40 @@ async def dashboard_url() -> dict:
     d = runtime().session.config.dashboard
     if not d.enabled:
         return {"enabled": False, "hint": "configure {'dashboard': {'enabled': true}} and restart the server"}
-    return {"enabled": True, "url": _dashboard_url or f"http://{d.host}:{d.port}/ (port was busy; run rewdio-dashboard)"}
+    from .dashboard.remote import pairing_url
+    return {"enabled": True, "url": _dashboard_url or f"http://{d.host}:{d.port}/ (port was busy; run rewdio-dashboard)",
+            "phone_pairing_url": pairing_url(runtime()) if d.allow_lan else None,
+            "phone_hint": None if d.allow_lan else "set dashboard.allow_lan to true to drive the crawl from a phone"}
+
+
+@mcp.tool()
+async def setup_status() -> dict:
+    """The setup wizard: every step with its current values, plus what's still missing. Walk the user
+    through it one step at a time (see the `setup` prompt) and save with save_settings."""
+    return _clean(await setup.status(runtime()))
+
+
+@mcp.tool()
+async def save_settings(updates: dict) -> dict:
+    """Save settings to the user's settings file (validated; only differences from defaults are kept).
+
+    Keys are dotted config paths, e.g. {"mic_cal_path": "/Users/me/cal.txt", "room_dims_m": [5.8, 4.3, 2.6],
+    "seat_xyz.MLP": [3.6, 2.15, 1.1], "timing_mode": "loopback", "crawl_grid.spacing_m": 0.75,
+    "dashboard.allow_lan": true}. "@minidsp_model": "2x4HD" applies that model's preset.
+    """
+    return _clean(await setup.save(runtime(), updates))
+
+
+@mcp.tool()
+async def test_setup(checks: list[str] | None = None) -> dict:
+    """Check the setup: 'rew' and 'minidsp' connections, 'mic_cal' and 'house_curve' files (default: all)."""
+    return _clean(await setup.check(runtime(), checks or ["rew", "minidsp", "mic_cal", "house_curve"]))
 
 
 @mcp.tool()
 async def configure(updates: dict) -> dict:
-    """Update the rig configuration (merged into the current one, validated, persisted).
-
-    Common keys: channels [{role, kind: main|sub, dsp_output, rew_output_channel}], crossover_hz,
-    timing_mode (loopback | acoustic | sum_fit), mic_positions ["MLP", ...], do_sub_crawl,
-    crawl_positions, room_dims_m [L, W, H], seat_xyz {"MLP": [x, y, z]}, mic_cal_path,
-    mic_sensitivity_dbfs, dsp_sample_rate, dsp_max_delay_ms, peq_slots, max_sub_gain_db,
-    target {bass_boost_db, shelf_hz}, convergence {...}, sweep {...}, rew_url, minidsp_url.
-    """
-    rt = runtime()
-    rt.session.config = SystemConfig.model_validate(deep_merge(rt.session.config.model_dump(mode="json"), updates))
-    rt.session.save()
-    await rt.reconnect()
-    return {"ok": True, "config": rt.session.config.model_dump(mode="json")}
+    """Same as save_settings, kept for compatibility. Nested dicts are fine, e.g. {"target": {"bass_boost_db": 3}}."""
+    return _clean(await setup.save(runtime(), updates))
 
 
 @mcp.tool()
@@ -128,7 +157,7 @@ async def autopilot_step(max_sweeps: int | None = None) -> dict:
     Returns status: `user_action_required` (relay action.instructions, then confirm_user_action),
     `paused` (sweep budget spent; call again), or `done` (call get_report).
     """
-    rep = await runtime().autopilot.step(max_sweeps=max_sweeps)
+    rep = await runtime().step(max_sweeps=max_sweeps)
     return _clean(rep)
 
 
@@ -136,16 +165,8 @@ async def autopilot_step(max_sweeps: int | None = None) -> dict:
 async def confirm_user_action(key: str | None = None, x: float | None = None, y: float | None = None,
                               z: float | None = None, note: str | None = None) -> dict:
     """Tell the autopilot the user finished the pending physical task. Pass x/y/z (metres) if known."""
-    rt = runtime()
-    pending = rt.session.workflow.pending_action
     xyz = [x, y, z] if None not in (x, y, z) else None
-    if pending is None:
-        return {"ok": False, "message": "nothing is waiting on the user"}
-    sim = rt.apply_sim_effects(pending, xyz)
-    res = rt.autopilot.confirm(key, xyz, note)
-    if sim:
-        res["simulated_effects"] = sim
-    return _clean(res)
+    return _clean(runtime().confirm(key, xyz, note))
 
 
 @mcp.tool()
@@ -166,9 +187,12 @@ async def get_report() -> dict:
 async def reset_calibration(reassert_baseline: bool = True) -> dict:
     """Start the workflow over (measurements are kept on disk). Optionally put the DSP back to baseline."""
     rt = runtime()
-    rt.session.reset_workflow()
-    if reassert_baseline:
-        await rt.rig.assert_baseline()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        rt.session.reset_workflow()
+        if reassert_baseline:
+            await rt.rig.assert_baseline()
     return {"ok": True, "phase": rt.session.workflow.phase}
 
 
@@ -178,7 +202,10 @@ async def measure(roles: list[str], position: str = "MLP", label: str | None = N
     rt = runtime()
     for r in roles:
         rt.session.config.channel(r)
-    rec, resp = await rt.rig.measure(roles, "manual", position, title=label)
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        rec, resp = await rt.rig.measure(roles, "manual", position, title=label)
     return _clean({"id": rec.id, "title": rec.title, "snr_db": rec.extra.get("snr_db"),
                    "summary": summarize(resp, rt.session.config)})
 
@@ -206,21 +233,13 @@ async def list_measurements(limit: int = 30) -> list[dict]:
 @mcp.tool()
 async def set_channel(role: str, gain_db: float | None = None, delay_ms: float | None = None,
                       invert: bool | None = None, mute: bool | None = None) -> dict:
-    """Directly set one channel's miniDSP gain, delay, polarity or mute (tracked in the shadow state)."""
+    """Directly set one channel's miniDSP gain, delay, polarity or mute (clamped to the DSP's limits)."""
     rt = runtime()
-    cfg = rt.session.config
-    cfg.channel(role)
-    o = rt.session.dsp.get(role)
-    lo, hi = cfg.dsp_gain_range_db
-    if gain_db is not None:
-        o.gain_db = max(lo, min(hi, gain_db))
-    if delay_ms is not None:
-        o.delay_ms = max(0.0, min(cfg.dsp_max_delay_ms, delay_ms))
-    if invert is not None:
-        o.invert = invert
-    if mute is not None:
-        o.mute = mute
-    await rt.rig.write_outputs([role], include_peq=False)
+    rt.session.config.channel(role)
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        o = await rt.rig.set_channel(role, gain_db=gain_db, delay_ms=delay_ms, invert=invert, mute=mute)
     return {"role": role, **o.model_dump(mode="json")}
 
 
@@ -230,8 +249,51 @@ async def solo(roles: list[str]) -> dict:
     rt = runtime()
     for r in roles:
         rt.session.config.channel(r)
-    await rt.rig.solo(roles)
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        await rt.rig.solo(roles)
     return {"playing": roles}
+
+
+@mcp.tool()
+async def list_setups() -> list[dict]:
+    """Saved DSP setups, newest first: id, name, date, bass flatness, and which one is on the miniDSP now."""
+    return [{k: d.get(k) for k in ("id", "name", "created", "note", "source", "bass_std_db", "active")}
+            for d in dsp_setups.list_all(runtime().session)]
+
+
+@mcp.tool()
+async def save_setup(name: str, note: str | None = None, measure_first: bool = False) -> dict:
+    """Save what's on the miniDSP now as a named, dated setup (for A/B listening later).
+
+    measure_first takes one full-system sweep at the main seat first, so the setup gets a response thumbnail.
+    """
+    rt = runtime()
+    if measure_first:
+        async with exclusive(rt) as ok:
+            if not ok:
+                return BUSY
+            await rt.rig.measure([c.role for c in rt.session.config.channels], "listening", rt.session.config.mic_positions[0])
+            await rt.rig.unmute_all()
+    d = dsp_setups.save(rt.session, name, note)
+    return {k: d.get(k) for k in ("ok", "id", "name", "created", "bass_std_db", "message")}
+
+
+@mcp.tool()
+async def recall_setup(setup: str) -> dict:
+    """Put a saved setup (id or name) on the miniDSP, all outputs playing. Call twice with two setups to A/B."""
+    rt = runtime()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return await dsp_setups.recall(rt.rig, setup)
+
+
+@mcp.tool()
+async def delete_setup(setup_id: str) -> dict:
+    """Delete a saved setup file by id."""
+    return dsp_setups.delete(runtime().session, setup_id)
 
 
 @mcp.tool()
@@ -242,11 +304,11 @@ async def get_dsp_state() -> dict:
 
 @mcp.tool()
 async def set_mic_calibration(cal_file_path: str, sensitivity_dbfs_at_94db: float | None = None) -> dict:
-    """Load the SoundID Reference (or any) mic calibration file into REW and remember it."""
+    """Save the SoundID Reference (or any) mic calibration file in settings and load it into REW."""
     rt = runtime()
-    rt.session.config.mic_cal_path = cal_file_path
-    rt.session.config.mic_sensitivity_dbfs = sensitivity_dbfs_at_94db
-    rt.session.save()
+    res = await setup.save(rt, {"mic_cal_path": cal_file_path, "mic_sensitivity_dbfs": sensitivity_dbfs_at_94db})
+    if not res.get("ok"):
+        return res
     return _clean(await rt.rew.set_input_cal(cal_file_path, sensitivity_dbfs_at_94db))
 
 

@@ -161,10 +161,16 @@ class RewClient:
 
     # -- measurement settings (all read back) --------------------------------------
 
-    async def configure_sweep(self, start_hz: int, end_hz: int, length: str, start_delay_s: float, sample_rate: int) -> None:
+    async def configure_sweep(self, start_hz: int, end_hz: int, length: str, start_delay_s: float, sample_rate: int,
+                              fill_silence_with_dither: bool) -> None:
         await self.post("/measure/sweep/configuration",
                         {"startFrequency": int(start_hz), "endFrequency": int(end_hz), "length": length})
         await self.post("/measure/start-delay", float(start_delay_s))
+        await self.post("/measure/fill-silence-with-dither", bool(fill_silence_with_dither))
+        got = await self.get("/measure/fill-silence-with-dither")
+        got = got.get("value", got) if isinstance(got, dict) else got
+        if bool(got) != bool(fill_silence_with_dither):
+            raise RewError(f"REW did not keep fill-silence-with-dither={fill_silence_with_dither} (reads {got})")
         self.sweep_seconds = SWEEP_SAMPLES.get(length, SWEEP_SAMPLES["1M"]) / sample_rate + start_delay_s
 
     async def set_level(self, dbfs: float) -> None:
@@ -186,7 +192,7 @@ class RewClient:
 
     async def set_protection(self, max_spl_db: float) -> dict:
         current = await self.get("/measure/protection-options") or {}
-        want = {"clippingAbort": True, "splLimitAbort": True, "dBSPLLimit": max_spl_db,
+        want = {"clippingAbort": True, "splLimitAbort": True, "dBSPLLimit": int(round(max_spl_db)),  # int32 in REW
                 "warnForLowLevels": False}  # a modal warning would stall an unattended run
         await self.post("/measure/protection-options", {**current, **want})
         got = await self.get("/measure/protection-options") or {}
@@ -258,3 +264,10 @@ class RewClient:
             raise RewError("frequency response has neither ppo nor freqStep")
         phase = decode_floats(r["phase"]) if r.get("phase") else None
         return Spectrum(freqs=freqs, mag_db=mag, phase_deg=phase)
+
+    async def impulse_response(self, ident: str) -> tuple[np.ndarray, float]:
+        """Raw (unwindowed, unnormalised) impulse response and its sample rate."""
+        r = await self.get(f"/measurements/{ident}/impulse-response", windowed="false", normalised="false")
+        if not isinstance(r, dict) or "data" not in r:
+            raise RewError(f"REW returned no impulse response for {ident}: {r}")
+        return decode_floats(r["data"]), float(r.get("sampleRate") or 1.0 / float(r["sampleInterval"]))

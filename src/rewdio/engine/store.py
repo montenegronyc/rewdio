@@ -49,8 +49,11 @@ class Session:
         base = Path(root or os.environ.get("REWDIO_HOME", Path.home() / ".rewdio"))
         self.dir = base / name
         (self.dir / "data").mkdir(parents=True, exist_ok=True)
-        # defaults.json < user config file < what this session saved (so new default keys still appear)
-        self.config = load_config(self._read("config.json", None))
+        # Settings live in ONE place, the user's settings file (written by the setup wizard); a session
+        # only holds measurement and run state. defaults.json < settings file.
+        env = os.environ.get("REWDIO_CONFIG")
+        self.settings_path = Path(env) if env else base / "config.json"
+        self.config = load_config(user_file=self.settings_path)
         self.dsp = self._load("dsp.json", DspState)
         self.workflow = self._load("workflow.json", WorkflowState)
         self.measurements: list[MeasurementRecord] = [
@@ -69,8 +72,10 @@ class Session:
         tmp.write_text(json.dumps(obj, indent=1))
         tmp.replace(self.dir / name)
 
+    version: int = 0  # bumped on every save; the live GUI watches it
+
     def save(self) -> None:
-        self._write("config.json", self.config.model_dump(mode="json"))
+        self.version += 1
         self._write("dsp.json", self.dsp.model_dump(mode="json"))
         self._write("workflow.json", self.workflow.model_dump(mode="json"))
         self._write("measurements.json", [m.model_dump(mode="json") for m in self.measurements])
@@ -79,6 +84,15 @@ class Session:
         self._write(f"data/{rec.id}.json", resp.to_dict())
         self.measurements.append(rec)
         self.save()
+
+    def add_direct(self, mid: str, seg) -> None:
+        self._write(f"data/{mid}.direct.json", seg.to_dict())
+
+    def direct(self, mid: str):
+        """The stored direct-sound impulse segment (mains), or None."""
+        from ..analysis.gating import DirectSegment
+        p = self.dir / "data" / f"{mid}.direct.json"
+        return DirectSegment.from_dict(json.loads(p.read_text())) if p.exists() else None
 
     def response(self, mid: str) -> Response:
         return Response.from_dict(json.loads((self.dir / "data" / f"{mid}.json").read_text()))
@@ -89,6 +103,9 @@ class Session:
             if all((getattr(m, k) if hasattr(m, k) else m.extra.get(k)) == v for k, v in match.items()):
                 out.append(m)
         return out
+
+    def reload_config(self) -> None:
+        self.config = load_config(user_file=self.settings_path)
 
     def reset_workflow(self) -> None:
         self.workflow = WorkflowState()

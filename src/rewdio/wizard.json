@@ -1,0 +1,60 @@
+{
+  "$description": "Setup wizard steps. Each field edits one config key; the web Setup tab and Claude's setup prompt both read this file.",
+  "minidsp_models": {
+    "2x4HD": {"dsp_sample_rate": 96000, "tuning.crosscheck.rew_equaliser.model": "2x4 HD"},
+    "Flex": {"dsp_sample_rate": 96000, "tuning.crosscheck.rew_equaliser.model": "Flex"},
+    "DDRC-24": {"dsp_sample_rate": 96000, "tuning.crosscheck.rew_equaliser.model": "DDRC-24"},
+    "SHD": {"dsp_sample_rate": 48000, "tuning.crosscheck.rew_equaliser.model": "SHD"},
+    "2x4 (original)": {"dsp_sample_rate": 48000, "tuning.crosscheck.rew_equaliser.model": "2x4"}
+  },
+  "steps": [
+    {"id": "connections", "title": "Connections", "intro": "Where Rewdio finds REW and the miniDSP. Start REW with its API enabled (and REW Pro for sweeps), and run minidspd.",
+     "fields": [
+       {"path": "rew_url", "label": "REW API address", "type": "text", "help": "Default http://127.0.0.1:4735"},
+       {"path": "minidsp_url", "label": "minidsp-rs address", "type": "text", "help": "unix:///tmp/minidsp.sock or http://127.0.0.1:5380"},
+       {"path": "minidsp_device_index", "label": "miniDSP device number", "type": "number", "help": "0 unless minidspd sees several units"}
+     ], "checks": ["rew", "minidsp"]},
+    {"id": "minidsp", "title": "Your miniDSP", "intro": "The model sets the DSP sample rate, which the EQ maths depends on.",
+     "fields": [
+       {"path": "@minidsp_model", "label": "Model", "type": "select", "options_from": "minidsp_models"},
+       {"path": "dsp_max_delay_ms", "label": "Maximum output delay (ms)", "type": "number", "help": "As shown in the miniDSP plugin's delay control"},
+       {"path": "peq_slots", "label": "Sub PEQ slots Rewdio may use", "type": "intlist", "help": "Leave the others for your own filters"}
+     ]},
+    {"id": "mic", "title": "Measurement mic", "intro": "Your SoundID Reference calibration file (download it from Sonarworks by serial number).",
+     "fields": [
+       {"path": "mic_cal_path", "label": "Calibration file", "type": "file", "help": "Full path on the computer running REW"},
+       {"path": "mic_sensitivity_dbfs", "label": "Sensitivity (dBFS at 94 dB SPL)", "type": "number", "optional": true, "help": "From the cal sheet; leave empty if unsure"}
+     ], "checks": ["mic_cal"]},
+    {"id": "outputs", "title": "Speakers", "intro": "Which miniDSP output feeds which speaker (outputs are numbered from 0).",
+     "fields": [{"path": "channels", "label": "Speakers", "type": "channels"}]},
+    {"id": "timing", "title": "Timing", "intro": "Loopback is best: a Y-splitter from your DAC's left output into the interface's input 2.",
+     "fields": [
+       {"path": "timing_mode", "label": "Timing reference", "type": "select", "options": ["loopback", "sum_fit", "acoustic"]},
+       {"path": "sweep.start_delay_s", "label": "Start delay (s)", "type": "number", "help": "2 for S/PDIF DACs that need to lock"},
+       {"path": "sweep.fill_silence_with_dither", "label": "Keep the digital stream alive between sweeps", "type": "bool"}
+     ]},
+    {"id": "room", "title": "Room and seats", "intro": "Measured from the front-left floor corner: x = towards the back, y = to the right, z = up.",
+     "fields": [
+       {"path": "room_dims_m", "label": "Room length, width, height (m)", "type": "triple"},
+       {"path": "seat_xyz.MLP", "label": "Main seat x, y, ear height (m)", "type": "triple"},
+       {"path": "mic_positions", "label": "Mic positions to measure", "type": "list", "help": "MLP first; add nearby spots for averaging"}
+     ]},
+    {"id": "crawl", "title": "Sub placement crawl", "intro": "Put a sub at your seat and walk the mic around a lettered grid to find the best sub spots.",
+     "fields": [
+       {"path": "do_sub_crawl", "label": "Run the crawl", "type": "bool"},
+       {"path": "crawl_grid.spacing_m", "label": "Grid step (m)", "type": "number"},
+       {"path": "crawl_grid.origin_from_front_m", "label": "A1 distance from the front wall (m)", "type": "number"},
+       {"path": "crawl_grid.origin_from_left_m", "label": "A1 distance from the left wall (m)", "type": "number"},
+       {"path": "crawl_grid.mode", "label": "Spots", "type": "select", "options": ["perimeter", "full"]}
+     ]},
+    {"id": "target", "title": "Sound", "intro": "The crossover already set in your miniDSP, and how much bass lift you like.",
+     "fields": [
+       {"path": "crossover_hz", "label": "Crossover (Hz)", "type": "number"},
+       {"path": "target.bass_boost_db", "label": "Bass lift (dB)", "type": "number"},
+       {"path": "target.house_curve_path", "label": "House curve file (optional, overrides the lift)", "type": "file", "optional": true},
+       {"path": "allow_peq", "label": "Allow PEQ as a last resort", "type": "bool"}
+     ], "checks": ["house_curve"]},
+    {"id": "phone", "title": "Phone remote", "intro": "Lets a paired phone drive the crawl over your home Wi-Fi.",
+     "fields": [{"path": "dashboard.allow_lan", "label": "Allow phone access on the home network", "type": "bool"}]}
+  ]
+}

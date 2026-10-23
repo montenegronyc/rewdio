@@ -36,7 +36,7 @@ def check_sweep(cfg: SystemConfig, resp: Response, summary: dict, roles: list[st
             out.append(Finding("critical", "low_snr", f"SNR {snr:.0f} dB: raise the level or quiet the room"))
         elif snr < q.min_snr_db_warning:
             out.append(Finding("warning", "low_snr", f"SNR {snr:.0f} dB is marginal"))
-    if summary.get("clipped"):
+    if summary.get("clipped"):  # not in every REW version; clipping also aborts the sweep via protection
         out.append(Finding("critical", "clipped", "input clipped: lower the level or the mic preamp gain"))
     start = summary.get("startFreq")
     if start is not None and start > q.max_start_hz:

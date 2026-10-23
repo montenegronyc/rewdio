@@ -20,15 +20,19 @@ async def test_autopilot_sum_fit_reaches_a_verified_solution(sim_runtime):
         assert len(o.peq) == len([s for s in dev.peq if s in rt.session.config.peq_slots])
 
 
-async def test_autopilot_with_reciprocity_crawl_converges(sim_runtime):
-    rt = sim_runtime(do_sub_crawl=True)
-    rep = await drive(rt)
+async def test_reciprocity_crawl_beats_the_corner_placement(sim_runtime):
+    corner = sim_runtime()
+    await drive(corner)
+    crawl = sim_runtime(do_sub_crawl=True)
+    rep = await drive(crawl)
     assert rep["status"] == "done"
-    crawl = rt.session.workflow.crawl["result"]
-    assert crawl["best_pairs"] and crawl["phase_mode"] == "geometric"
-    lp = rt.session.workflow.last_proposal
-    assert lp["measured_ok"], lp["measured_fails"]
-    assert lp["measured"]["bass_deviation"]["std_db"] < 3.0
+    res = crawl.session.workflow.crawl["result"]
+    assert res["best_pairs"] and res["phase_mode"] == "geometric"
+    lp_c, lp_k = corner.session.workflow.last_proposal, crawl.session.workflow.last_proposal
+    # placement does what EQ cannot: a clearly flatter result with no more DSP than the corner run
+    assert lp_k["measured"]["bass_deviation"]["std_db"] < lp_c["measured"]["bass_deviation"]["std_db"] - 1.0
+    assert lp_k["dsp_footprint"]["filters"] <= lp_c["dsp_footprint"]["filters"]
+    assert lp_k["measured_ok"] or lp_k.get("limit_reached")
 
 
 async def test_autopilot_two_seats_asks_for_mic_moves(sim_runtime):

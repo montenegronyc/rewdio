@@ -13,7 +13,7 @@ import os
 from enum import Enum
 from importlib import resources
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -61,6 +61,7 @@ class Convergence(_Strict):
     max_prediction_error_db: float
     max_iterations: int = Field(ge=1)
     plateau_improvement_db: float
+    lr_balance_max_std_db: float = Field(description="Max std of the smoothed L/R difference after correction")
 
 
 class SweepSettings(_Strict):
@@ -74,6 +75,8 @@ class SweepSettings(_Strict):
     max_spl_db: float
     min_snr_db: float
     start_delay_s: float = Field(description="REW start delay; raise it if a DAC/upsampler eats the sweep start")
+    fill_silence_with_dither: bool = Field(
+        description="Keep the digital stream alive between sweeps so an S/PDIF DAC stays locked")
     rew_sample_rate: int = Field(description="REW's audio sample rate, used to size the sweep timeout")
 
 
@@ -124,6 +127,7 @@ class AlignmentTuning(_Strict):
     arrival_f_hi_hz: float
     arrival_onset_fraction: float
     arrival_hp_hz: float
+    polarity_min_gain_db: float = Field(description="Flip sub polarity only if crossover summation improves this much")
 
 
 class PairTuning(_Strict):
@@ -137,6 +141,7 @@ class PairTuning(_Strict):
     fine_gain_step_db: float
     delay_tie_penalty_per_ms: float
     gain_tie_penalty_per_db: float
+    invert_penalty: float = Field(description="Score cost of inverting a sub, so polarity only flips when it pays")
 
 
 class PeqTuning(_Strict):
@@ -151,6 +156,17 @@ class PeqTuning(_Strict):
     min_improvement_db: float
     stop_error_db: float
     max_nfev: int
+    max_filters: int = Field(description="Hard cap on sub PEQ filters, whatever slots are free")
+    gain_penalty: float = Field(description="Ridge penalty per dB of filter gain: prefer the smallest filters that work")
+    min_total_improvement_db: float = Field(description="PEQ earns its place if it cuts peak excess by this much...")
+    min_peak_reduction_db: float = Field(description="...or if it knocks the worst peak down by this much")
+    only_after_verified_pass: bool = Field(description="Never PEQ before a verified gain/delay/polarity-only pass")
+
+
+class RestraintTuning(_Strict):
+    gain_deadband_db: float = Field(description="Smaller gain changes than this are not written")
+    delay_deadband_ms: float = Field(description="Smaller delay changes than this are not written")
+    balance_trim_deadband_db: float = Field(description="L/R broadband differences below this are left alone")
 
 
 class GainStaging(_Strict):
@@ -197,6 +213,9 @@ class DiagnosticsTuning(_Strict):
 class PreflightTuning(_Strict):
     input_level_listen_s: float
     require_live_mic: bool
+    loopback_check: bool = Field(description="In loopback mode, prove the loopback signal arrives before sweeping")
+    loopback_test_level_dbfs: float
+    loopback_min_rms_dbfs: float
 
 
 class CrosscheckTuning(_Strict):
@@ -220,10 +239,12 @@ class Tuning(_Strict):
     diagnostics: DiagnosticsTuning
     preflight: PreflightTuning
     crosscheck: CrosscheckTuning
+    restraint: RestraintTuning
 
 
 class DashboardSettings(_Strict):
     enabled: bool
+    allow_lan: bool = Field(description="Serve on the home network so a paired phone can drive the crawl")
     host: str
     port: int
     refresh_ms: int
@@ -233,15 +254,60 @@ class DashboardSettings(_Strict):
     chart_smoothing: float
 
 
+class BalanceSettings(_Strict):
+    enabled: bool = Field(description="Correct L/R level differences per frequency band (centre image)")
+    pair: tuple[str, str] = Field(description="The two mains to balance, left then right")
+    band_hz: tuple[float, float] = Field(description="Band where balance is judged; above the sub crossover")
+    smoothing: float = Field(description="Fractional-octave smoothing of the L/R difference (3 = 1/3 octave)")
+    max_filters: int
+    max_gain_db_per_side: float
+    min_q: float
+    max_q: float
+    start_q: float
+    min_improvement_db: float
+    stop_error_db: float
+    peq_slots: list[Annotated[int, Field(ge=0, le=9)]] = Field(description="Mains-output PEQ slots for balance filters (0-9)")
+    max_nfev: int
+    use_gating: bool = Field(description="Judge balance on the direct sound (gated impulse response), as the ear does")
+    max_gate_ms: float = Field(description="Longest window kept after the direct arrival")
+    min_gate_ms: float = Field(description="Shortest window, even if a reflection arrives sooner")
+    reflection_threshold_db: float = Field(description="A later envelope peak this loud (re direct) closes the gate")
+    resolution_cycles: float = Field(description="Balance band starts at cycles / gate length (resolution limit)")
+    gate_pre_ms: float
+    gate_taper_ms: float
+
+
+class CrawlGrid(_Strict):
+    enabled: bool = Field(description="Lay candidate sub spots out as a lettered grid (A1, B3...) for the crawl")
+    origin_from_front_m: float = Field(description="A1 distance from the front wall (also the margin at the back wall)")
+    origin_from_left_m: float = Field(description="A1 distance from the left wall (also the margin at the right wall)")
+    spacing_m: float = Field(gt=0.1, description="Step between grid points")
+    mic_height_m: float = Field(description="Mic height for the crawl: where the sub's woofer will be")
+    mode: Literal["perimeter", "full"] = Field(description="perimeter: only cells near walls (where subs go)")
+    perimeter_depth_m: float = Field(description="In perimeter mode, how far from a wall a cell may be")
+    excluded: list[str] = Field(description="Cells a sub cannot go (furniture, doorways), e.g. ['C1', 'D1']")
+    max_cells: int = Field(ge=3, description="Safety cap on how many cells one crawl may visit")
+
+
+class SetupLibrary(_Strict):
+    dir: str | None = Field(description="Folder for named, dated DSP setups; null = <REWDIO_HOME>/setups")
+    autosave_on_done: bool = Field(description="Save the finished calibration as a setup automatically")
+    thumb_hz: tuple[float, float] = Field(description="Frequency span of a setup's response thumbnail")
+    thumb_ppo: int = Field(ge=1, description="Thumbnail points per octave")
+    thumb_smoothing: float = Field(description="Thumbnail fractional-octave smoothing")
+
+
 class SystemConfig(_Strict):
     rew_url: str
     minidsp_url: str = Field(description="minidsp-rs daemon: http://host:5380 or unix:///path/to/minidsp.sock")
     minidsp_device_index: int
     dsp_sample_rate: int = Field(description="miniDSP internal rate: 96000 for 2x4HD/Flex/DDRC-24, 48000 for SHD/2x4")
-    dsp_max_delay_ms: float
+    dsp_max_delay_ms: float = Field(gt=0, le=80, description="minidsp-rs accepts at most 80 ms")
     dsp_gain_range_db: tuple[float, float]
-    peq_slots: list[int] = Field(description="Output PEQ slots Rewdio may overwrite")
+    peq_slots: list[Annotated[int, Field(ge=0, le=9)]] = Field(description="Output PEQ slots Rewdio may overwrite (0-9)")
     channels: list[Channel]
+    rew_output_all: str | None = Field(description="REW output that drives every speaker at once; needed only if "
+                                                    "channels name their own rew_output_channel")
     baseline: Baseline
     crossover_hz: float = Field(description="Nominal sub/mains crossover already set in the DSP")
     timing_mode: TimingMode
@@ -249,6 +315,7 @@ class SystemConfig(_Strict):
     mic_positions: list[str] = Field(description="Seats to measure each pass; first is the main listening position")
     do_sub_crawl: bool
     crawl_positions: int = Field(ge=3, le=40)
+    crawl_grid: CrawlGrid
     room_dims_m: tuple[float, float, float] | None = Field(description="Length (x, front to back), width (y), height (z)")
     seat_xyz: dict[str, tuple[float, float, float]] = Field(description="Seat coordinates, origin front-left floor corner")
     mic_cal_path: str | None
@@ -262,7 +329,9 @@ class SystemConfig(_Strict):
     convergence: Convergence
     sweep: SweepSettings
     rew_client: RewClientSettings
+    balance: BalanceSettings
     dashboard: DashboardSettings
+    setups: SetupLibrary
     tuning: Tuning
 
     @model_validator(mode="after")
@@ -273,11 +342,23 @@ class SystemConfig(_Strict):
         outs = [c.dsp_output for c in self.channels]
         if len(set(outs)) != len(outs):
             raise ValueError(f"each channel needs its own miniDSP output: {outs}")
+        per = [c.rew_output_channel for c in self.channels]
+        if any(per) and not all(per):
+            raise ValueError("set rew_output_channel on every channel or on none (mixing leaves REW on the wrong output)")
+        if any(per) and len(set(per)) > 1 and not self.rew_output_all:
+            raise ValueError("channels use different REW outputs, so set rew_output_all (the REW output that plays "
+                             "them all, used for combined and full-system sweeps)")
         if self.timing_reference_channel not in roles:
             raise ValueError(f"timing_reference_channel {self.timing_reference_channel!r} is not a channel")
         if not self.mic_positions:
             raise ValueError("need at least one mic position")
+        if self.balance.enabled and len(self.mains) >= 2 and not set(self.balance.pair) <= set(roles):
+            raise ValueError(f"balance.pair {self.balance.pair} must name two channels")
         return self
+
+    def peq_slots_for(self, role: str) -> list[int]:
+        """Subs use peq_slots (bass EQ); mains use balance.peq_slots (L/R balance)."""
+        return self.peq_slots if self.channel(role).kind == ChannelKind.SUB else self.balance.peq_slots
 
     def channel(self, role: str) -> Channel:
         for c in self.channels:

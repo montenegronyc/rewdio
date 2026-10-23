@@ -17,6 +17,7 @@ from ..minidsp.biquad import Biquad
 from ..rew.codec import encode_floats
 from .world import P_REF, World
 
+IR_FS = 12000.0
 SWEEP_LENGTHS = {"128k", "256k", "512k", "1M", "2M", "4M"}
 
 
@@ -38,6 +39,10 @@ class FakeRew:
         self.align = {"mode": "Phase", "index-a": 1, "index-b": 2, "max-positive-delay": 10.0,
                       "max-negative-delay": 10.0, "delay-b": None, "invert-b": False}
         self.eq_filters: dict[str, list[dict]] = {}
+        self.dither = False
+        self.generator = {"signal": "pinknoise", "level": -20.0, "playing": False}
+        self.loopback_connected = True  # tests unplug it
+        self.fail_measures = 0  # tests: fail this many sweeps (fault injection)
 
     # -- helpers -----------------------------------------------------------------
 
@@ -92,7 +97,11 @@ class FakeRew:
         db = 20 * np.log10(np.abs(h) + 1e-12)
         live = db > db.max() - 20  # SNR over the band the speaker actually reproduces, as REW reports it
         snr = float(np.mean(db[live]) - noise_spl)
+        fl = np.arange(1.0, IR_FS / 2)  # impulse response for REW's /impulse-response, band-limited for speed
+        ir = np.fft.irfft(np.concatenate([[0], w.response(fl, self.level_dbfs, self.output_channel, noise=False)
+                                          / P_REF]), n=int(IR_FS))
         m = {
+            "_ir": ir,
             "uuid": str(uuidlib.uuid4()), "title": self.next_title, "notes": self.next_notes,
             "startFreq": f0, "endFreq": f1, "timingReference": t_ref or "None",
             "signalToNoisedB": round(snr, 1), "_f": f, "_h": h,
@@ -128,7 +137,25 @@ class FakeRew:
             return self._ok()
         if p == "/input-levels/last-levels":
             floor = self.world.noise_floor_spl - 120.0  # ~ -90 dBFS: a live mic hears room noise
-            return self._ok({"unit": "dBFS", "rms": [floor], "peak": [floor + 10], "timeSpanSeconds": 1.0})
+            mic = floor
+            if self.generator["playing"] and any(not o.mute for o in self.world.dsp.values()):
+                mic = max(floor, self.generator["level"] - 30.0)  # speakers playing into the room
+            ref = self.generator["level"] - 3.0 if (self.generator["playing"] and self.loopback_connected) else floor
+            return self._ok({"unit": "dBFS", "rms": [mic, ref], "peak": [mic + 10, ref + 3], "timeSpanSeconds": 1.0})
+        if p == "/measure/fill-silence-with-dither":
+            if meth == "POST":
+                self.dither = bool(body)
+                return self._ok()
+            return self._ok(self.dither)
+        if p == "/generator/signal":
+            self.generator["signal"] = body["signal"]
+            return self._ok()
+        if p == "/generator/level":
+            self.generator["level"] = float(body["value"])
+            return self._ok()
+        if p == "/generator/command":
+            self.generator["playing"] = body["command"] == "Play"
+            return self._ok()
         if p.startswith("/alignment-tool/"):
             return self._alignment(p.split("/", 2)[2], meth, body)
         mm = re.fullmatch(r"/measurements/([^/]+)/(equaliser|filters|eq/frequency-response)", p)
@@ -185,12 +212,21 @@ class FakeRew:
         if p == "/measure/command":
             if body.get("command") != "SPL":
                 return self._err("unsupported in simulator", valid=["SPL"])
+            if self.fail_measures > 0:
+                self.fail_measures -= 1
+                return self._err("simulated sweep failure", status=500)
             return self._measure()
         if p == "/measurements":
             if meth == "DELETE":
                 self.measurements.clear()
                 return self._ok()
             return self._ok({str(i + 1): self._summary(m) for i, m in enumerate(self.measurements)})
+        mm = re.fullmatch(r"/measurements/([^/]+)/impulse-response", p)
+        if mm:
+            m = self._find(mm.group(1))
+            if m is None:
+                return self._err("no such measurement", status=404)
+            return self._ok({"startTime": 0.0, "sampleRate": IR_FS, "data": encode_floats(m["_ir"])})
         mm = re.fullmatch(r"/measurements/([^/]+)(/frequency-response)?", p)
         if mm:
             m = self._find(mm.group(1))
@@ -262,6 +298,7 @@ class FakeMiniDSP:
     def __init__(self, world: World):
         self.world = world
         self.writes: list[dict] = []
+        self.fail_writes = 0  # tests: fail this many config writes (fault injection)
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         p = request.url.path
@@ -273,6 +310,9 @@ class FakeMiniDSP:
                                                         "mute": False, "dirac": False},
                                              "input_levels": [-120.0, -120.0], "output_levels": [-120.0] * 4})
         if p == "/devices/0/config" and request.method == "POST":
+            if self.fail_writes > 0:
+                self.fail_writes -= 1
+                return httpx.Response(500, json={"error": "simulated write failure"})
             cfg = json.loads(request.content)
             self.writes.append(cfg)
             for o in cfg.get("outputs", []):

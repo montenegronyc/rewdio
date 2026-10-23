@@ -58,9 +58,9 @@ PREFLIGHT -> GAIN_STAGING -> [SUB_CRAWL -> SUB_PLACEMENT] -> BASELINE (per mic p
 
 Convergence (configurable): L/R level within 0.5 dB; crossover summation within 1 dB of
 ideal; bass deviation (20-200 Hz, 1/6 oct, spatial average) within target; predicted vs
-measured within 1.5 dB RMS. PEQ is only used when alignment alone cannot hit the target.
-It is cut-biased, boosts are capped at +3 dB, and deep position-dependent nulls are never
-boosted.
+measured within 1.5 dB RMS. PEQ is the last rung: it is unlocked only after a verified
+gain/delay/polarity-only pass misses the target. It is cut-only, at most -6 dB and 3 filters,
+and is used only if it clearly fixes peaks (see README "Restraint").
 
 ## Code layout
 

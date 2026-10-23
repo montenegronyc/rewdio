@@ -29,7 +29,27 @@ Never call a predicted result a measured one.
 """
 
 
+SETUP = """\
+Walk the user through Rewdio's setup, one step at a time, like a friendly installer.
+1. Call `setup_status`. It lists the steps, each field's current value, and what's missing.
+2. For each step in order: say in one or two sentences what it's for (use the step's `intro`), show the
+   current values in plain words, and ask only for what's missing or wrong. Accept natural answers
+   ("my room is about 19 by 14 feet", "the cal file is in Downloads") and convert them yourself
+   (metres; full file paths).
+3. Save each step with `save_settings` using dotted keys, before moving on. If it returns an error,
+   explain it simply and ask again.
+4. After the connections and the mic step, run `test_setup` and fix anything that fails before continuing.
+5. Finish with a short summary of the settings, and point out that the same wizard is on the Setup tab
+   at http://127.0.0.1:8765/ if they prefer a form.
+Never ask the user to edit JSON files.
+"""
+
+
 def register(mcp: MCPServer, runtime: Callable) -> None:
+    @mcp.prompt(name="setup", description="Guided first-time setup (paths, hardware, room, phone)")
+    def setup_prompt() -> str:
+        return SETUP
+
     @mcp.prompt(name="calibrate", description="Guided autonomous calibration of subs + mains")
     def calibrate(goal: str = "Get the flattest bass at the main seat with seamless sub/mains integration.") -> str:
         return CALIBRATE.format(goal=goal)
