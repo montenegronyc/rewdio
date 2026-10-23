@@ -17,6 +17,7 @@ from ..minidsp.biquad import Biquad
 from ..rew.codec import encode_floats
 from .world import P_REF, World
 
+IR_FS = 12000.0
 SWEEP_LENGTHS = {"128k", "256k", "512k", "1M", "2M", "4M"}
 
 
@@ -95,7 +96,11 @@ class FakeRew:
         db = 20 * np.log10(np.abs(h) + 1e-12)
         live = db > db.max() - 20  # SNR over the band the speaker actually reproduces, as REW reports it
         snr = float(np.mean(db[live]) - noise_spl)
+        fl = np.arange(1.0, IR_FS / 2)  # impulse response for REW's /impulse-response, band-limited for speed
+        ir = np.fft.irfft(np.concatenate([[0], w.response(fl, self.level_dbfs, self.output_channel, noise=False)
+                                          / P_REF]), n=int(IR_FS))
         m = {
+            "_ir": ir,
             "uuid": str(uuidlib.uuid4()), "title": self.next_title, "notes": self.next_notes,
             "startFreq": f0, "endFreq": f1, "timingReference": t_ref or "None",
             "signalToNoisedB": round(snr, 1), "_f": f, "_h": h,
@@ -212,6 +217,12 @@ class FakeRew:
                 self.measurements.clear()
                 return self._ok()
             return self._ok({str(i + 1): self._summary(m) for i, m in enumerate(self.measurements)})
+        mm = re.fullmatch(r"/measurements/([^/]+)/impulse-response", p)
+        if mm:
+            m = self._find(mm.group(1))
+            if m is None:
+                return self._err("no such measurement", status=404)
+            return self._ok({"startTime": 0.0, "sampleRate": IR_FS, "data": encode_floats(m["_ir"])})
         mm = re.fullmatch(r"/measurements/([^/]+)(/frequency-response)?", p)
         if mm:
             m = self._find(mm.group(1))

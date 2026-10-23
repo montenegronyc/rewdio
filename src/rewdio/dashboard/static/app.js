@@ -49,6 +49,8 @@ function render(s) {
   $("m-dev").textContent = fmt(m.bass_deviation && m.bass_deviation.std_db);
   $("m-dev-sub").textContent = m.bass_deviation ? `std, ${m.bass_deviation.band_hz[0]}–${m.bass_deviation.band_hz[1]} Hz` : "";
   $("m-xo").textContent = fmt(m.crossover_efficiency_db);
+  $("m-lr").textContent = fmt(m.lr_balance && m.lr_balance.std_db);
+  $("m-lr-sub").textContent = m.lr_balance ? `std of R−L; worst band ${m.lr_balance.max_abs_db} dB` : "";
   $("m-pred").textContent = fmt(m.prediction_error_db);
   $("m-sweeps").textContent = s.sweeps;
   $("m-pass").textContent = `pass ${s.pass}`;

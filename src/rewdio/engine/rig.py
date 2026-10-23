@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..analysis.gating import direct_segment
 from ..analysis.quality import check_sweep
 from ..analysis.response import Response, log_grid
 from ..config import SystemConfig, TimingMode
@@ -38,7 +39,7 @@ class Rig:
             peq = None
             if include_peq:
                 fs = self.cfg.dsp_sample_rate
-                peq = {slot: (o.peq[slot].biquad(fs) if slot in o.peq else None) for slot in self.cfg.peq_slots}
+                peq = {slot: (o.peq[slot].biquad(fs) if slot in o.peq else None) for slot in self.cfg.peq_slots_for(c.role)}
             patches.append(MiniDSPClient.output_patch(
                 c.dsp_output, gain_db=o.gain_db, mute=o.mute, delay_ms=o.delay_ms, invert=o.invert, peq=peq))
         await self.dsp.set_outputs(patches)
@@ -126,5 +127,9 @@ class Rig:
         await self.rew.annotate(rec.id, title, {"rewdio": {"kind": kind, "roles": list(roles), "position": position,
                                                            "pass": rec.pass_no, "level_dbfs": self.level_dbfs,
                                                            "dsp": snap.model_dump(mode="json")["outputs"]}})
+        bs = self.cfg.balance
+        if bs.enabled and bs.use_gating and len(roles) == 1 and roles[0] in bs.pair and kind in ("solo", "manual"):
+            ir, fs = await self.rew.impulse_response(rec.id)
+            self.s.add_direct(rec.id, direct_segment(ir, fs, bs, self.cfg.tuning.alignment.arrival_onset_fraction))
         self.s.add_measurement(rec, resp)
         return rec, resp

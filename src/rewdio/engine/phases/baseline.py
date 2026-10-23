@@ -119,7 +119,8 @@ class BaselinePhase(PhaseBase):
             def load(rec):
                 return self.s.response(rec.id).scaled(10 ** ((level - rec.level_dbfs) / 20))
 
-            row = {role: Measured(load(rec), rec.snapshot.get(role)) for role, rec in solos.items()}
+            row = {role: Measured(load(rec), rec.snapshot.get(role), self.s.direct(rec.id), level - rec.level_dbfs)
+                   for role, rec in solos.items()}
             if self.cfg.timing_mode == TimingMode.SUM_FIT:
                 combos = self.s.find(kind="combined", position=pos, pass_no=pass_no)
                 for role, meas in row.items():

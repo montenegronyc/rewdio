@@ -264,3 +264,10 @@ class RewClient:
             raise RewError("frequency response has neither ppo nor freqStep")
         phase = decode_floats(r["phase"]) if r.get("phase") else None
         return Spectrum(freqs=freqs, mag_db=mag, phase_deg=phase)
+
+    async def impulse_response(self, ident: str) -> tuple[np.ndarray, float]:
+        """Raw (unwindowed, unnormalised) impulse response and its sample rate."""
+        r = await self.get(f"/measurements/{ident}/impulse-response", windowed="false", normalised="false")
+        if not isinstance(r, dict) or "data" not in r:
+            raise RewError(f"REW returned no impulse response for {ident}: {r}")
+        return decode_floats(r["data"]), float(r.get("sampleRate") or 1.0 / float(r["sampleInterval"]))

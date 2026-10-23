@@ -80,6 +80,15 @@ class Session:
         self.measurements.append(rec)
         self.save()
 
+    def add_direct(self, mid: str, seg) -> None:
+        self._write(f"data/{mid}.direct.json", seg.to_dict())
+
+    def direct(self, mid: str):
+        """The stored direct-sound impulse segment (mains), or None."""
+        from ..analysis.gating import DirectSegment
+        p = self.dir / "data" / f"{mid}.direct.json"
+        return DirectSegment.from_dict(json.loads(p.read_text())) if p.exists() else None
+
     def response(self, mid: str) -> Response:
         return Response.from_dict(json.loads((self.dir / "data" / f"{mid}.json").read_text()))
 

@@ -61,6 +61,7 @@ class Convergence(_Strict):
     max_prediction_error_db: float
     max_iterations: int = Field(ge=1)
     plateau_improvement_db: float
+    lr_balance_max_std_db: float = Field(description="Max std of the smoothed L/R difference after correction")
 
 
 class SweepSettings(_Strict):
@@ -238,6 +239,29 @@ class DashboardSettings(_Strict):
     chart_smoothing: float
 
 
+class BalanceSettings(_Strict):
+    enabled: bool = Field(description="Correct L/R level differences per frequency band (centre image)")
+    pair: tuple[str, str] = Field(description="The two mains to balance, left then right")
+    band_hz: tuple[float, float] = Field(description="Band where balance is judged; above the sub crossover")
+    smoothing: float = Field(description="Fractional-octave smoothing of the L/R difference (3 = 1/3 octave)")
+    max_filters: int
+    max_gain_db_per_side: float
+    min_q: float
+    max_q: float
+    start_q: float
+    min_improvement_db: float
+    stop_error_db: float
+    peq_slots: list[int] = Field(description="Mains-output PEQ slots Rewdio may use for balance filters")
+    max_nfev: int
+    use_gating: bool = Field(description="Judge balance on the direct sound (gated impulse response), as the ear does")
+    max_gate_ms: float = Field(description="Longest window kept after the direct arrival")
+    min_gate_ms: float = Field(description="Shortest window, even if a reflection arrives sooner")
+    reflection_threshold_db: float = Field(description="A later envelope peak this loud (re direct) closes the gate")
+    resolution_cycles: float = Field(description="Balance band starts at cycles / gate length (resolution limit)")
+    gate_pre_ms: float
+    gate_taper_ms: float
+
+
 class SystemConfig(_Strict):
     rew_url: str
     minidsp_url: str = Field(description="minidsp-rs daemon: http://host:5380 or unix:///path/to/minidsp.sock")
@@ -267,6 +291,7 @@ class SystemConfig(_Strict):
     convergence: Convergence
     sweep: SweepSettings
     rew_client: RewClientSettings
+    balance: BalanceSettings
     dashboard: DashboardSettings
     tuning: Tuning
 
@@ -282,7 +307,13 @@ class SystemConfig(_Strict):
             raise ValueError(f"timing_reference_channel {self.timing_reference_channel!r} is not a channel")
         if not self.mic_positions:
             raise ValueError("need at least one mic position")
+        if self.balance.enabled and len(self.mains) >= 2 and not set(self.balance.pair) <= set(roles):
+            raise ValueError(f"balance.pair {self.balance.pair} must name two channels")
         return self
+
+    def peq_slots_for(self, role: str) -> list[int]:
+        """Subs use peq_slots (bass EQ); mains use balance.peq_slots (L/R balance)."""
+        return self.peq_slots if self.channel(role).kind == ChannelKind.SUB else self.balance.peq_slots
 
     def channel(self, role: str) -> Channel:
         for c in self.channels:

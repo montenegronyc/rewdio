@@ -195,6 +195,23 @@ Styling comes entirely from design tokens in `src/rewdio/dashboard/tokens.json`,
 custom properties for light and dark themes. Edit that file to restyle the dashboard; a test fails if
 `styles.css` contains a literal colour.
 
+### Left/right balance (centre image)
+
+Rewdio matches L and R, not just their overall level:
+- It fetches each main's impulse response from REW and keeps only the **direct sound**, closing the
+  gate just before the first strong reflection. Your ears localise from the first-arriving sound
+  (precedence effect), so this is the balance that sets the centre image. Steady-state curves at the
+  seat are dominated by reflection combs.
+- Both channels use the same gate length, so neither side's level is biased.
+- The louder side gets a broadband trim. What remains is fixed with up to 3 broad, low-Q filters split
+  half and half (+g/2 on one side, −g/2 on the other), capped at 1.5 dB per side. The centre moves;
+  the overall tone doesn't.
+- It only judges what the gate can resolve. With a reflection 2.5 ms after the direct sound, that's
+  above about 800 Hz. More mic positions around the seat average out reflection combs.
+
+Settings are under `balance` in the config (band, gate limits, filter caps, and PEQ slots 7–9 on the
+mains outputs). The report and dashboard show the L/R difference before and after.
+
 ### Safety and checks
 
 - **Before any sweep.** REW's SPL and clipping protection is set and read back. The timing reference and
