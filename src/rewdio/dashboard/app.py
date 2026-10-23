@@ -9,13 +9,14 @@ import asyncio
 import contextlib
 import json
 from importlib import resources
+from pathlib import Path
 from typing import Callable
 
 from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
-from .remote import LOCAL, token_for
+from .remote import LOCAL, lan_ip, token_for
 from .remote import routes as remote_routes
 from .state import snapshot
 from .tokens import tokens_css
@@ -25,11 +26,41 @@ TYPES = {".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", 
 
 
 def _static(path: str) -> bytes | None:
-    f = resources.files("rewdio.dashboard").joinpath("static").joinpath(path)
-    return f.read_bytes() if f.is_file() else None
+    """A file from the packaged static folder, and nothing outside it.
+
+    pathlib drops the base when a component is absolute ("/etc/passwd"), so resolve and check containment
+    rather than looking for "..".
+    """
+    root = Path(str(resources.files("rewdio.dashboard").joinpath("static"))).resolve()
+    if not path or path.startswith(("/", "\\")) or "\\" in path or ":" in path:
+        return None
+    f = (root / path).resolve()
+    if not f.is_relative_to(root) or not f.is_file():
+        return None
+    return f.read_bytes()
 
 
-def build_app(runtime: Callable) -> Starlette:
+class HostGuard:
+    """Refuse requests whose Host isn't this machine (blocks DNS-rebinding pages) and cross-site writes."""
+
+    def __init__(self, app, allowed: Callable[[], set[str]]):
+        self.app, self.allowed = app, allowed
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = {k.decode().lower(): v.decode() for k, v in scope["headers"]}
+            host = headers.get("host", "").rsplit(":", 1)[0].strip("[]").lower()
+            origin = headers.get("origin")
+            bad = host not in self.allowed()
+            if not bad and scope["method"] not in ("GET", "HEAD") and origin:
+                bad = origin.split("//", 1)[-1].rsplit(":", 1)[0].strip("[]").lower() != host
+            if bad:
+                await Response("forbidden host or origin", status_code=403)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+def build_app(runtime: Callable) -> HostGuard:
     async def index(request):
         html = _static("app/index.html")
         if html is None:
@@ -47,8 +78,6 @@ def build_app(runtime: Callable) -> Starlette:
         path = request.path_params["path"]
         if path == "tokens.css":
             return Response(tokens_css(), media_type="text/css")
-        if ".." in path:
-            return Response(status_code=404)
         data = _static(path)
         if data is None:
             return Response(status_code=404)
@@ -58,8 +87,18 @@ def build_app(runtime: Callable) -> Starlette:
     async def legacy_state(_):  # the classic page polls this
         return JSONResponse(snapshot(runtime().session))
 
-    return Starlette(routes=[Route("/", index), Route("/classic", classic), Route("/api/classic-state", legacy_state),
-                             *remote_routes(runtime), Route("/static/{path:path}", asset)])
+    app = Starlette(routes=[Route("/", index), Route("/classic", classic), Route("/api/classic-state", legacy_state),
+                            *remote_routes(runtime), Route("/static/{path:path}", asset)])
+
+    def allowed() -> set[str]:
+        hosts = {"localhost", "127.0.0.1", "::1", "testserver"}
+        if runtime().session.config.dashboard.allow_lan:
+            import socket
+            name = socket.gethostname().lower()
+            hosts |= {lan_ip(), name, name.split(".")[0] + ".local"}
+        return hosts
+
+    return HostGuard(app, allowed)
 
 
 @contextlib.asynccontextmanager

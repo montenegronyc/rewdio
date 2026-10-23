@@ -76,3 +76,24 @@ def test_whole_crawl_driven_from_the_phone(sim_runtime):
         measured = rt.session.workflow.crawl["measured"]
         assert len(measured) == len(seen_cells) and "A1" not in measured  # A1 was skipped
         assert rt.session.workflow.crawl["placed"]  # the placement step recorded where the subs went
+
+
+def test_static_serving_cannot_escape_its_folder(sim_runtime):
+    rt = sim_runtime()
+    c = TestClient(build_app(lambda: rt), client=("192.168.1.50", 50000))
+    for url in ("/static//etc/hostname", "/static/%2Fetc%2Fhostname", "/static/app/../../../defaults.json",
+                "/static/..%2F..%2Fdefaults.json", "/static/C:%5Cwindows%5Cwin.ini"):
+        assert c.get(url).status_code == 404, url
+    assert c.get("/static/app/index.html").status_code == 200
+
+
+def test_dns_rebinding_and_cross_site_writes_are_refused(sim_runtime):
+    rt = sim_runtime()
+    app = build_app(lambda: rt)
+    evil = TestClient(app, base_url="http://attacker.example")  # rebound name pointing at 127.0.0.1
+    assert evil.get("/").status_code == 403 and evil.get("/api/state").status_code == 403
+    local = TestClient(app)
+    tok = {"x-rewdio-token": token_for(rt)}
+    assert local.post("/api/step", headers={**tok, "origin": "http://attacker.example"}).status_code == 403
+    assert local.post("/api/step", headers={**tok, "origin": "http://testserver"}).status_code == 200
+    assert oct((rt.session.dir / "remote_token").stat().st_mode & 0o777) == "0o600"

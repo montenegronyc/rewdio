@@ -83,5 +83,6 @@ def crawl_view(rt) -> dict | None:
 def live_snapshot(rt) -> dict:
     out = snapshot(rt.session)
     out.update(busy=rt.busy, version=rt.session.version, crawl=crawl_view(rt),
-               simulated=rt.simulate, last_status=(rt.last_report or {}).get("status"))
+               simulated=rt.simulate, last_status=(rt.last_report or {}).get("status"),
+               last_error=(rt.last_report or {}).get("error"))
     return out

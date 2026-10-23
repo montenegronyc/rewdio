@@ -55,6 +55,8 @@ class BaselinePhase(PhaseBase):
         if self.wf.pass_no % 2 == 1:
             positions = positions[::-1]  # fewer mic moves: start where the last verify ended
         for pos in positions:
+            if self._baseline_done(pos, roles, ref):
+                continue  # resumed after a restart: don't send the user back to a finished seat
             self._mic_to(pos, "baseline")
             have = {m.roles[0] for m in self.s.find(kind="solo", position=pos, pass_no=self.wf.pass_no)}
             for role in roles:
@@ -65,6 +67,23 @@ class BaselinePhase(PhaseBase):
             if self.cfg.timing_mode == TimingMode.SUM_FIT:
                 await self._sumfit_sweeps(pos, roles, ref, log)
         return "SOLVE"
+
+    def _baseline_done(self, pos, roles, ref) -> bool:
+        """Every sweep this position needs in this pass is already on disk."""
+        n = self.wf.pass_no
+        have = {m.roles[0] for m in self.s.find(kind="solo", position=pos, pass_no=n)}
+        if not set(roles) <= have:
+            return False
+        q = self.cfg.tuning.quality
+        if q.repeat_check and n == 0 and pos == self.cfg.mic_positions[0] and not self.s.find(
+                kind="repeat", position=pos, pass_no=0):
+            return False
+        if self.cfg.timing_mode == TimingMode.SUM_FIT:
+            combined = self.s.find(kind="combined", position=pos, pass_no=n)
+            for role in roles:
+                if role != ref and len({m.extra.get("probe_ms") for m in combined if m.extra.get("x") == role}) < 2:
+                    return False
+        return True
 
     async def _repeat_check(self, pos, ref, log) -> None:
         q = self.cfg.tuning.quality

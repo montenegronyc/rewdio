@@ -25,6 +25,7 @@ LOCAL = {"127.0.0.1", "::1", "localhost", "testclient"}
 def token_for(rt) -> str:
     p = rt.session.dir / "remote_token"
     if not p.exists():
+        p.touch(mode=0o600)
         p.write_text(secrets.token_urlsafe(18))
     return p.read_text().strip()
 
@@ -79,8 +80,15 @@ def routes(runtime: Callable) -> list[Route]:
     async def confirm(req):
         if not authed(req):
             return deny()
-        body = await req.json() if await req.body() else {}
-        xyz = body.get("xyz")
+        try:
+            body = await req.json() if await req.body() else {}
+            xyz = body.get("xyz")
+            if xyz is not None:
+                xyz = [float(v) for v in xyz]
+                if len(xyz) != 3:
+                    raise ValueError
+        except (ValueError, TypeError):
+            return JSONResponse({"ok": False, "message": "xyz must be three numbers (metres)"}, status_code=400)
         rt = runtime()
         res = rt.confirm(body.get("key"), xyz)
         if res.get("ok"):
@@ -95,9 +103,13 @@ def routes(runtime: Callable) -> list[Route]:
     async def cell(req):
         if not authed(req):
             return deny()
-        body = await req.json()
+        try:
+            body = await req.json()
+            code, enabled = str(body["code"]).upper(), bool(body["enabled"])
+        except (ValueError, KeyError, TypeError):
+            return JSONResponse({"ok": False, "message": "send {code, enabled}"}, status_code=400)
         rt = runtime()
-        res = rt.set_cell(str(body["code"]).upper(), bool(body["enabled"]))
+        res = rt.set_cell(code, enabled)
         if res.get("ok") and rt.session.workflow.pending_action is None:
             rt.advance_in_background()  # skipped the current cell: move on to the next
         return JSONResponse(res)

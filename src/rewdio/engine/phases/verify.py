@@ -100,9 +100,12 @@ class SolveVerifyPhase(PhaseBase):
             positions.sort(key=lambda p: p != self.wf.mic_at)
         measured: dict[str, Response] = {}
         for pos in positions:
-            self._mic_to(pos, "verify")
             have = self.s.find(kind="system", position=pos, pass_no=self.wf.pass_no)
-            measured[pos] = self.s.response(have[-1].id) if have else (await self.rig.measure(roles, "system", pos))[1]
+            if have:  # already swept this pass (e.g. resumed after a restart): no mic move needed
+                measured[pos] = self.s.response(have[-1].id)
+                continue
+            self._mic_to(pos, "verify")
+            measured[pos] = (await self.rig.measure(roles, "system", pos))[1]
         lp = self.wf.last_proposal
         pred = {p: Response.from_dict(d) for p, d in lp["_pred"].items()}
         lo, hi = b.prediction_check_hz

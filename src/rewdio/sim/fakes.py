@@ -42,6 +42,7 @@ class FakeRew:
         self.dither = False
         self.generator = {"signal": "pinknoise", "level": -20.0, "playing": False}
         self.loopback_connected = True  # tests unplug it
+        self.fail_measures = 0  # tests: fail this many sweeps (fault injection)
 
     # -- helpers -----------------------------------------------------------------
 
@@ -211,6 +212,9 @@ class FakeRew:
         if p == "/measure/command":
             if body.get("command") != "SPL":
                 return self._err("unsupported in simulator", valid=["SPL"])
+            if self.fail_measures > 0:
+                self.fail_measures -= 1
+                return self._err("simulated sweep failure", status=500)
             return self._measure()
         if p == "/measurements":
             if meth == "DELETE":
@@ -294,6 +298,7 @@ class FakeMiniDSP:
     def __init__(self, world: World):
         self.world = world
         self.writes: list[dict] = []
+        self.fail_writes = 0  # tests: fail this many config writes (fault injection)
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         p = request.url.path
@@ -305,6 +310,9 @@ class FakeMiniDSP:
                                                         "mute": False, "dirac": False},
                                              "input_levels": [-120.0, -120.0], "output_levels": [-120.0] * 4})
         if p == "/devices/0/config" and request.method == "POST":
+            if self.fail_writes > 0:
+                self.fail_writes -= 1
+                return httpx.Response(500, json={"error": "simulated write failure"})
             cfg = json.loads(request.content)
             self.writes.append(cfg)
             for o in cfg.get("outputs", []):

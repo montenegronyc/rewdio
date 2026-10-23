@@ -192,7 +192,7 @@ class RewClient:
 
     async def set_protection(self, max_spl_db: float) -> dict:
         current = await self.get("/measure/protection-options") or {}
-        want = {"clippingAbort": True, "splLimitAbort": True, "dBSPLLimit": max_spl_db,
+        want = {"clippingAbort": True, "splLimitAbort": True, "dBSPLLimit": int(round(max_spl_db)),  # int32 in REW
                 "warnForLowLevels": False}  # a modal warning would stall an unattended run
         await self.post("/measure/protection-options", {**current, **want})
         got = await self.get("/measure/protection-options") or {}

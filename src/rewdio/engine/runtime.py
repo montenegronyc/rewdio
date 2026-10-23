@@ -72,7 +72,14 @@ class Runtime:
         if self.busy or (self._task is not None and not self._task.done()):
             return False
         self._task = asyncio.create_task(self.step())
+        self._task.add_done_callback(self._task_done)
         return True
+
+    def _task_done(self, task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception() is not None:  # step() reports errors itself; this is a backstop
+            e = task.exception()
+            self.last_report = {"status": "error", "error": f"{type(e).__name__}: {e}"}
+            self.session.save()
 
     def set_cell(self, code: str, enabled: bool) -> dict:
         crawl = self.session.workflow.crawl

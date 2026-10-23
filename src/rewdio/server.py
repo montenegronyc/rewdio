@@ -74,6 +74,19 @@ def _clean(obj: Any) -> Any:
     return obj
 
 
+BUSY = {"ok": False, "message": "a calibration step is running (from the phone or another call); try again when it finishes"}
+
+
+@contextlib.asynccontextmanager
+async def exclusive(rt):
+    """Manual tools must not interleave with a running autopilot step: refuse rather than wait."""
+    if rt.busy:
+        yield False
+        return
+    async with rt.lock:
+        yield True
+
+
 @mcp.tool()
 async def rewdio_status() -> dict:
     """Connectivity check (REW, miniDSP), current config, workflow phase and any pending user action."""
@@ -174,9 +187,12 @@ async def get_report() -> dict:
 async def reset_calibration(reassert_baseline: bool = True) -> dict:
     """Start the workflow over (measurements are kept on disk). Optionally put the DSP back to baseline."""
     rt = runtime()
-    rt.session.reset_workflow()
-    if reassert_baseline:
-        await rt.rig.assert_baseline()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        rt.session.reset_workflow()
+        if reassert_baseline:
+            await rt.rig.assert_baseline()
     return {"ok": True, "phase": rt.session.workflow.phase}
 
 
@@ -186,7 +202,10 @@ async def measure(roles: list[str], position: str = "MLP", label: str | None = N
     rt = runtime()
     for r in roles:
         rt.session.config.channel(r)
-    rec, resp = await rt.rig.measure(roles, "manual", position, title=label)
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        rec, resp = await rt.rig.measure(roles, "manual", position, title=label)
     return _clean({"id": rec.id, "title": rec.title, "snr_db": rec.extra.get("snr_db"),
                    "summary": summarize(resp, rt.session.config)})
 
@@ -214,21 +233,13 @@ async def list_measurements(limit: int = 30) -> list[dict]:
 @mcp.tool()
 async def set_channel(role: str, gain_db: float | None = None, delay_ms: float | None = None,
                       invert: bool | None = None, mute: bool | None = None) -> dict:
-    """Directly set one channel's miniDSP gain, delay, polarity or mute (tracked in the shadow state)."""
+    """Directly set one channel's miniDSP gain, delay, polarity or mute (clamped to the DSP's limits)."""
     rt = runtime()
-    cfg = rt.session.config
-    cfg.channel(role)
-    o = rt.session.dsp.get(role)
-    lo, hi = cfg.dsp_gain_range_db
-    if gain_db is not None:
-        o.gain_db = max(lo, min(hi, gain_db))
-    if delay_ms is not None:
-        o.delay_ms = max(0.0, min(cfg.dsp_max_delay_ms, delay_ms))
-    if invert is not None:
-        o.invert = invert
-    if mute is not None:
-        o.mute = mute
-    await rt.rig.write_outputs([role], include_peq=False)
+    rt.session.config.channel(role)
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        o = await rt.rig.set_channel(role, gain_db=gain_db, delay_ms=delay_ms, invert=invert, mute=mute)
     return {"role": role, **o.model_dump(mode="json")}
 
 
@@ -238,7 +249,10 @@ async def solo(roles: list[str]) -> dict:
     rt = runtime()
     for r in roles:
         rt.session.config.channel(r)
-    await rt.rig.solo(roles)
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        await rt.rig.solo(roles)
     return {"playing": roles}
 
 

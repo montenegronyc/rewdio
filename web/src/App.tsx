@@ -80,6 +80,9 @@ export default function App() {
       </main>
       {tab !== "setup" && <footer className="actions">
         {error && <p className="error">{error}</p>}
+        {!state.busy && state.last_status === "error" && (
+          <p className="error">Stopped: {state.last_error}. Outputs were unmuted. Fix it, then tap again to resume.</p>
+        )}
         {offline && <p className="error">Connection lost; retrying…</p>}
         <button className="primary" disabled={state.busy || (state.done && !a)} onClick={onPrimary}>
           {state.busy && <span className="spinner" aria-hidden />}{primaryLabel(state)}

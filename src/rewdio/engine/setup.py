@@ -15,12 +15,13 @@ async def save(rt, updates: dict) -> dict:
     """Validate and write; then reload and reconnect so the change takes effect now."""
     if rt.busy:
         return {"ok": False, "message": "a calibration step is running; save again when it finishes"}
-    try:
-        settings.save(rt.session.settings_path, updates)
-    except Exception as e:  # pydantic ValidationError, bad model name, unwritable file
-        return {"ok": False, "message": str(e)}
-    rt.session.reload_config()
-    await rt.reconnect()
+    async with rt.lock:  # nothing may sweep while the clients are swapped
+        try:
+            settings.save(rt.session.settings_path, updates)
+        except Exception as e:  # pydantic ValidationError, bad model name, unwritable file
+            return {"ok": False, "message": str(e)}
+        rt.session.reload_config()
+        await rt.reconnect()
     return {"ok": True, **(await status(rt))}
 
 

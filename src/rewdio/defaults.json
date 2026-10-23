@@ -310,5 +310,6 @@
     "perimeter_depth_m": 0.6,
     "excluded": [],
     "max_cells": 32
-  }
+  },
+  "rew_output_all": null
 }

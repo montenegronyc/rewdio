@@ -59,6 +59,20 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
             return self._report("done", log)
         except NeedUser as e:
             return self._report("user_action_required", log, action=e.action)
+        except Exception as e:  # REW abort, timeout, unreachable miniDSP...: stop safely and say why
+            log.append(f"stopped in {self.wf.phase}: {type(e).__name__}: {e}")
+            restored = await self._restore_listening(log)
+            return self._report("error", log, error=f"{type(e).__name__}: {e}", outputs_restored=restored,
+                                note="Fix the cause and call autopilot_step again; it resumes where it stopped.")
+
+    async def _restore_listening(self, log) -> bool:
+        """Never leave the system soloed after a failure: unmute everything (current settings kept)."""
+        try:
+            await self.rig.unmute_all()
+            return True
+        except Exception as e:
+            log.append(f"could not unmute outputs ({e}); check the miniDSP before listening")
+            return False
 
     def _report(self, status: str, log: list[str], **kw) -> dict:
         keep = self.cfg.dashboard.log_lines

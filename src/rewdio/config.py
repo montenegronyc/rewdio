@@ -13,7 +13,7 @@ import os
 from enum import Enum
 from importlib import resources
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -266,7 +266,7 @@ class BalanceSettings(_Strict):
     start_q: float
     min_improvement_db: float
     stop_error_db: float
-    peq_slots: list[int] = Field(description="Mains-output PEQ slots Rewdio may use for balance filters")
+    peq_slots: list[Annotated[int, Field(ge=0, le=9)]] = Field(description="Mains-output PEQ slots for balance filters (0-9)")
     max_nfev: int
     use_gating: bool = Field(description="Judge balance on the direct sound (gated impulse response), as the ear does")
     max_gate_ms: float = Field(description="Longest window kept after the direct arrival")
@@ -294,10 +294,12 @@ class SystemConfig(_Strict):
     minidsp_url: str = Field(description="minidsp-rs daemon: http://host:5380 or unix:///path/to/minidsp.sock")
     minidsp_device_index: int
     dsp_sample_rate: int = Field(description="miniDSP internal rate: 96000 for 2x4HD/Flex/DDRC-24, 48000 for SHD/2x4")
-    dsp_max_delay_ms: float
+    dsp_max_delay_ms: float = Field(gt=0, le=80, description="minidsp-rs accepts at most 80 ms")
     dsp_gain_range_db: tuple[float, float]
-    peq_slots: list[int] = Field(description="Output PEQ slots Rewdio may overwrite")
+    peq_slots: list[Annotated[int, Field(ge=0, le=9)]] = Field(description="Output PEQ slots Rewdio may overwrite (0-9)")
     channels: list[Channel]
+    rew_output_all: str | None = Field(description="REW output that drives every speaker at once; needed only if "
+                                                    "channels name their own rew_output_channel")
     baseline: Baseline
     crossover_hz: float = Field(description="Nominal sub/mains crossover already set in the DSP")
     timing_mode: TimingMode
@@ -331,6 +333,12 @@ class SystemConfig(_Strict):
         outs = [c.dsp_output for c in self.channels]
         if len(set(outs)) != len(outs):
             raise ValueError(f"each channel needs its own miniDSP output: {outs}")
+        per = [c.rew_output_channel for c in self.channels]
+        if any(per) and not all(per):
+            raise ValueError("set rew_output_channel on every channel or on none (mixing leaves REW on the wrong output)")
+        if any(per) and len(set(per)) > 1 and not self.rew_output_all:
+            raise ValueError("channels use different REW outputs, so set rew_output_all (the REW output that plays "
+                             "them all, used for combined and full-system sweeps)")
         if self.timing_reference_channel not in roles:
             raise ValueError(f"timing_reference_channel {self.timing_reference_channel!r} is not a channel")
         if not self.mic_positions:

@@ -13,7 +13,8 @@ export type Crawl = {
 export type Action = { key: string; instructions: string; cell?: string | null; place?: Record<string, string> };
 export type State = {
   phase: string; pass: number; done: boolean; sweeps: number; busy: boolean; version: number;
-  pending_action: Action | null; crawl: Crawl | null; simulated: boolean; measured_ok: boolean | null;
+  pending_action: Action | null; crawl: Crawl | null; simulated: boolean;
+  last_status?: string | null; last_error?: string | null; measured_ok: boolean | null;
   metrics: Record<string, any> | null; fails: string[] | null; log: string[]; dsp: Record<string, any>;
 };
 
