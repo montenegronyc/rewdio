@@ -1,0 +1,15 @@
+{
+  "timing_mode": "loopback",
+  "dsp_sample_rate": 96000,
+  "dsp_max_delay_ms": 8.0,
+  "crossover_hz": 80,
+  "channels": [
+    {"role": "L", "kind": "main", "dsp_output": 0},
+    {"role": "R", "kind": "main", "dsp_output": 1},
+    {"role": "SUB1", "kind": "sub", "dsp_output": 2},
+    {"role": "SUB2", "kind": "sub", "dsp_output": 3}
+  ],
+  "mic_cal_path": "/path/to/SoundID_Reference_cal.txt",
+  "sweep": {"start_delay_s": 2.0, "fill_silence_with_dither": true},
+  "tuning": {"preflight": {"loopback_check": true}}
+}

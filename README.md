@@ -34,10 +34,46 @@ the physical limit is (usually sub placement).
 | **REW 5.40+ with the API enabled** | `roomeqwizard -api`, or Preferences > API. **API-triggered sweeps need a [REW Pro upgrade](https://www.roomeqwizard.com/upgrades.html).** Default `http://127.0.0.1:4735`. |
 | **[minidsp-rs](https://github.com/mrene/minidsp-rs) daemon** (`minidspd`) | miniDSP has no official API; minidsp-rs is the de facto one. Rewdio talks to its HTTP API on the unix socket `/tmp/minidsp.sock` (default) or `http://127.0.0.1:5380` (enable `[http_server]` in its config). Keep the miniDSP plugin closed while calibrating so only one program is talking to the unit. |
 | Measurement mic | SoundID Reference (XLR, phantom power) into your interface. Download its per-serial cal file from Sonarworks and pass it as `mic_cal_path`. |
-| Optional: loopback cable | One interface output into a second input, REW timing reference set to loopback. Gives absolute phase and the most reliable sub crawl. Without it, Rewdio uses **sum-fit** timing (below). |
+| Recommended: loopback | A tap of the playback signal, taken *before* the miniDSP, into a second interface input, with REW's timing reference set to loopback. It gives absolute phase, 6 fewer sweeps per pass and the most reliable sub crawl. Without it, Rewdio uses **sum-fit** timing (below). See "Wiring" for how. |
 
-Assumed signal chain: REW > interface (or the miniDSP's own USB audio) > miniDSP inputs >
-outputs L, R, SUB1, SUB2 > amps. Change the channel map with `configure` if yours differs.
+Assumed signal chain: REW > DAC or interface > miniDSP analog inputs > outputs L, R, SUB1, SUB2 > amps.
+Change the channel map with `configure` if yours differs.
+
+### Wiring
+
+**Record and play on a shared timeline.** Don't play through one USB device and record on an unrelated
+one with no reference. Their clocks drift and there's no common time base, which hurts timing in every
+mode. Either play and record on one interface, or keep your own DAC and add a loopback tap (below).
+
+**With your own DAC chain** (for example USB-to-S/PDIF converter > DAC > miniDSP), add a small two-input
+interface (for example a Scarlett 2i2) for recording only:
+
+```
+Computer --USB--> converter --coax--> DAC --RCA--> miniDSP --> amps
+                                       |
+                       left RCA via Y-splitter --> interface input 2 (line, Inst off, gain min)  <- loopback
+Measurement mic --XLR--> interface input 1 (48V)
+miniDSP --USB--> computer (control only, for minidsp-rs)
+```
+
+- The loopback records the DAC's real output, so the converter and DAC latency drop out. The miniDSP,
+  the amps and the distance stay in the measurement; that's what gets aligned.
+- On macOS, an Aggregate Device in Audio MIDI Setup (playback device plus interface, with drift
+  correction on the interface) removes even the small clock mismatch. Select it in REW for input and
+  output.
+- S/PDIF DACs can take a moment to lock, clipping the start of a sweep. `sweep.fill_silence_with_dither`
+  (on by default) keeps the stream alive, and `sweep.start_delay_s: 2` adds margin.
+- Set REW, the converter and the interface to the same sample rate (48 kHz).
+- In loopback mode, preflight mutes every miniDSP output, plays pink noise and checks that it arrives on
+  the reference input. The room stays silent, and a missing splitter or wrong REW input is caught before
+  the first sweep.
+- Servo or analog sub plates (for example Rythmik): set the amp's own low-pass to bypass or its maximum,
+  phase to 0, and leave all its knobs alone during a run. The miniDSP does the crossover, and Rewdio
+  trims level, delay and polarity.
+
+A ready-made config for this layout is in
+[`examples/configs/dac-chain-2x4hd-loopback.json`](examples/configs/dac-chain-2x4hd-loopback.json). Copy it to
+`~/.rewdio/config.json` and set `mic_cal_path`.
 
 ## Install
 

@@ -75,3 +75,26 @@ async def test_dashboard_serves_tokens_and_state(sim_runtime):
     st = client.get("/api/state").json()
     assert st["done"] and st["curves"]["MLP"]["measured"] and set(st["dsp"]) == {"L", "R", "SUB1", "SUB2"}
     assert client.get("/").status_code == 200
+
+
+async def test_loopback_check_passes_when_wired_and_stops_when_unplugged(sim_runtime):
+    from rewdio.config import TimingMode
+    rt = sim_runtime(timing_mode=TimingMode.LOOPBACK)
+    rep = await rt.autopilot.step()
+    assert any("loopback signal present" in line for line in rep["log"])
+
+    rt2 = sim_runtime(timing_mode=TimingMode.LOOPBACK)
+    rt2.fake_rew.loopback_connected = False  # splitter not plugged in
+    rep = await rt2.autopilot.step()
+    assert rep["status"] == "user_action_required" and rep["action"]["key"].startswith("loopback_missing")
+    assert "Y-splitter" in rep["action"]["instructions"]
+    assert all(o.mute for o in rt2.world.dsp.values())  # the test noise never reached the speakers
+    rt2.fake_rew.loopback_connected = True
+    rt2.autopilot.confirm()
+    assert (await drive(rt2))["status"] == "done"
+
+
+def test_example_rig_configs_are_valid():
+    from rewdio.config import load_config
+    for f in (Path(__file__).resolve().parents[1] / "examples" / "configs").glob("*.json"):
+        load_config(user_file=f)

@@ -87,7 +87,8 @@ class Rig:
         cal = await self.rew.input_cal()
         report["mic_cal"] = (cal.get("calDataAllInputs") or {}).get("calFilePath") or None
         sw = cfg.sweep
-        await self.rew.configure_sweep(sw.start_hz, sw.end_hz, sw.length, sw.start_delay_s, sw.rew_sample_rate)
+        await self.rew.configure_sweep(sw.start_hz, sw.end_hz, sw.length, sw.start_delay_s, sw.rew_sample_rate,
+                                       sw.fill_silence_with_dither)
         await self.rew.set_level(self.level_dbfs)
         await self.rew.set_protection(cfg.sweep.max_spl_db)
         choices = await self.rew.timing_reference_choices()

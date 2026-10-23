@@ -36,6 +36,25 @@ async def input_levels(rew: RewClient, listen_s: float) -> dict:
             "clipping": bool(peak) and max(peak) > -0.5}
 
 
+async def loopback_check(rew: RewClient, level_dbfs: float, listen_s: float, min_rms_dbfs: float) -> dict:
+    """Play pink noise while the caller has every miniDSP output muted, so the room stays silent and
+    the only place the noise can appear is the loopback tap (which sits before the miniDSP).
+
+    Returns {"ok": True|False|None}; None means REW reported a single input channel, so we cannot tell.
+    """
+    await rew.post("/generator/signal", {"signal": "pinknoise"})
+    await rew.post("/generator/level", {"value": float(level_dbfs), "unit": "dBFS"})
+    await rew.post("/generator/command", {"command": "Play"})
+    try:
+        lv = await input_levels(rew, listen_s)
+    finally:
+        await rew.post("/generator/command", {"command": "Stop"})
+    rms = lv["rms_dbfs"]
+    if len(rms) < 2:
+        return {"ok": None, "levels": lv, "reason": "REW reported one input channel; cannot see the loopback input"}
+    return {"ok": max(rms) >= min_rms_dbfs, "levels": lv, "loudest_input_dbfs": round(max(rms), 1)}
+
+
 async def index_of(rew: RewClient, uuid: str) -> int:
     for m in await rew.list_measurements():
         if m["uuid"] == uuid:

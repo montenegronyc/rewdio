@@ -74,6 +74,8 @@ class SweepSettings(_Strict):
     max_spl_db: float
     min_snr_db: float
     start_delay_s: float = Field(description="REW start delay; raise it if a DAC/upsampler eats the sweep start")
+    fill_silence_with_dither: bool = Field(
+        description="Keep the digital stream alive between sweeps so an S/PDIF DAC stays locked")
     rew_sample_rate: int = Field(description="REW's audio sample rate, used to size the sweep timeout")
 
 
@@ -197,6 +199,9 @@ class DiagnosticsTuning(_Strict):
 class PreflightTuning(_Strict):
     input_level_listen_s: float
     require_live_mic: bool
+    loopback_check: bool = Field(description="In loopback mode, prove the loopback signal arrives before sweeping")
+    loopback_test_level_dbfs: float
+    loopback_min_rms_dbfs: float
 
 
 class CrosscheckTuning(_Strict):

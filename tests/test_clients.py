@@ -15,7 +15,8 @@ async def test_rew_client_sweep_and_frequency_response(cfg):
     w = default_world()
     rt, _, fake, _ = transports(w)
     rew = RewClient("http://rew", fast(cfg), transport=rt)
-    await rew.configure_sweep(10, 20000, "256k", 0.0, 48000)
+    await rew.configure_sweep(10, 20000, "256k", 0.0, 48000, True)
+    assert fake.dither
     await rew.set_level(-40)
     m = await rew.sweep("test")
     assert m["title"] == "test"

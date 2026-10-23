@@ -6,7 +6,8 @@ import numpy as np
 
 from ...analysis.response import band_median_db, smooth_db
 from ...rew.client import RewError
-from ...rew.extras import input_levels
+from ...config import TimingMode
+from ...rew.extras import input_levels, loopback_check
 from .base import PhaseBase
 
 
@@ -35,7 +36,28 @@ class SetupPhase(PhaseBase):
                       "device/channel is the mic. Confirm when fixed.", levels=lv)
         if lv.get("clipping"):
             log.append("WARNING: mic input already near 0 dBFS with no signal; lower the preamp gain")
+        if self.cfg.timing_mode == TimingMode.LOOPBACK and pf.loopback_check:
+            await self._check_loopback(log)
         return "GAIN_STAGING"
+
+    async def _check_loopback(self, log) -> None:
+        pf = self.cfg.tuning.preflight
+        await self.rig.solo([])  # every output muted: the room stays silent during the test
+        try:
+            res = await loopback_check(self.rig.rew, pf.loopback_test_level_dbfs, max(pf.input_level_listen_s, 0.0),
+                                       pf.loopback_min_rms_dbfs)
+        except RewError as e:
+            res = {"ok": None, "reason": str(e)}
+        if res["ok"] is None:
+            log.append(f"loopback check inconclusive ({res.get('reason')}); the first sweep will show if timing is wrong")
+        elif res["ok"]:
+            log.append(f"loopback signal present ({res['loudest_input_dbfs']} dBFS on the reference input)")
+        else:
+            self._ask(f"loopback_missing:{self.wf.pass_no}",
+                      "The loopback signal is not reaching the interface. Check: the RCA Y-splitter is on the DAC's "
+                      "LEFT output; its second leg goes into interface input 2 (line, Inst off, gain at minimum); in "
+                      "REW's soundcard preferences the reference/loopback input is input 2 and the timing reference "
+                      "is loopback. Confirm when fixed.", levels=res.get("levels"))
 
     async def _phase_gain_staging(self, log) -> str:
         r = self.rig

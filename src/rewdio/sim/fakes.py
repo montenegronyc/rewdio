@@ -38,6 +38,9 @@ class FakeRew:
         self.align = {"mode": "Phase", "index-a": 1, "index-b": 2, "max-positive-delay": 10.0,
                       "max-negative-delay": 10.0, "delay-b": None, "invert-b": False}
         self.eq_filters: dict[str, list[dict]] = {}
+        self.dither = False
+        self.generator = {"signal": "pinknoise", "level": -20.0, "playing": False}
+        self.loopback_connected = True  # tests unplug it
 
     # -- helpers -----------------------------------------------------------------
 
@@ -128,7 +131,25 @@ class FakeRew:
             return self._ok()
         if p == "/input-levels/last-levels":
             floor = self.world.noise_floor_spl - 120.0  # ~ -90 dBFS: a live mic hears room noise
-            return self._ok({"unit": "dBFS", "rms": [floor], "peak": [floor + 10], "timeSpanSeconds": 1.0})
+            mic = floor
+            if self.generator["playing"] and any(not o.mute for o in self.world.dsp.values()):
+                mic = max(floor, self.generator["level"] - 30.0)  # speakers playing into the room
+            ref = self.generator["level"] - 3.0 if (self.generator["playing"] and self.loopback_connected) else floor
+            return self._ok({"unit": "dBFS", "rms": [mic, ref], "peak": [mic + 10, ref + 3], "timeSpanSeconds": 1.0})
+        if p == "/measure/fill-silence-with-dither":
+            if meth == "POST":
+                self.dither = bool(body)
+                return self._ok()
+            return self._ok(self.dither)
+        if p == "/generator/signal":
+            self.generator["signal"] = body["signal"]
+            return self._ok()
+        if p == "/generator/level":
+            self.generator["level"] = float(body["value"])
+            return self._ok()
+        if p == "/generator/command":
+            self.generator["playing"] = body["command"] == "Play"
+            return self._ok()
         if p.startswith("/alignment-tool/"):
             return self._alignment(p.split("/", 2)[2], meth, body)
         mm = re.fullmatch(r"/measurements/([^/]+)/(equaliser|filters|eq/frequency-response)", p)

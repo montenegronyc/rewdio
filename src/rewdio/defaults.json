@@ -88,7 +88,8 @@
     "max_spl_db": 100.0,
     "min_snr_db": 40.0,
     "start_delay_s": 0.0,
-    "rew_sample_rate": 48000
+    "rew_sample_rate": 48000,
+    "fill_silence_with_dither": true
   },
   "rew_client": {
     "read_timeout_s": 15.0,
@@ -225,7 +226,10 @@
     },
     "preflight": {
       "input_level_listen_s": 1.0,
-      "require_live_mic": true
+      "require_live_mic": true,
+      "loopback_check": true,
+      "loopback_test_level_dbfs": -20.0,
+      "loopback_min_rms_dbfs": -45.0
     },
     "crosscheck": {
       "enabled": true,
