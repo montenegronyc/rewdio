@@ -1,9 +1,9 @@
 {
-  "name": "Rewdio Remote",
+  "name": "Rewdio",
   "short_name": "Rewdio",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#2f6fdb",
-  "theme_color": "#2f6fdb",
+  "background_color": "#f3eee2",
+  "theme_color": "#f3eee2",
   "icons": [{"src": "/static/app/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
 }

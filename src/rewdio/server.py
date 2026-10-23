@@ -264,9 +264,19 @@ async def list_setups() -> list[dict]:
 
 
 @mcp.tool()
-async def save_setup(name: str, note: str | None = None) -> dict:
-    """Save what's on the miniDSP now as a named, dated setup (for A/B listening later)."""
-    d = dsp_setups.save(runtime().session, name, note)
+async def save_setup(name: str, note: str | None = None, measure_first: bool = False) -> dict:
+    """Save what's on the miniDSP now as a named, dated setup (for A/B listening later).
+
+    measure_first takes one full-system sweep at the main seat first, so the setup gets a response thumbnail.
+    """
+    rt = runtime()
+    if measure_first:
+        async with exclusive(rt) as ok:
+            if not ok:
+                return BUSY
+            await rt.rig.measure([c.role for c in rt.session.config.channels], "listening", rt.session.config.mic_positions[0])
+            await rt.rig.unmute_all()
+    d = dsp_setups.save(rt.session, name, note)
     return {k: d.get(k) for k in ("ok", "id", "name", "created", "bass_std_db", "message")}
 
 

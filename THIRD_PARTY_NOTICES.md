@@ -21,3 +21,9 @@ The MIT licence text, which applies to each of the projects above:
 > furnished to do so, subject to the following conditions: The above copyright notice and this
 > permission notice shall be included in all copies or substantial portions of the Software.
 > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+## Public Sans (bundled web font)
+
+The phone and desktop GUI bundle Public Sans (Light, Medium, SemiBold) via `@fontsource/public-sans`.
+Public Sans is by the U.S. Web Design System (USWDS) and is licensed under the SIL Open Font License 1.1
+(https://openfontlicense.org). It is a derivative of Libre Franklin.

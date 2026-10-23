@@ -7,8 +7,8 @@ const num = (s: string) => (s.trim() === "" ? null : Number(s));
 
 export function FieldInput({ field, value, onChange }: Props) {
   const id = `f-${field.path}`;
-  const label = <label htmlFor={id}>{field.label}{field.optional && <span className="muted"> (optional)</span>}</label>;
-  const help = field.help && <small className="muted">{field.help}</small>;
+  const label = <label htmlFor={id}>{field.label}</label>;
+  const hint = field.help || (field.optional ? "Optional" : undefined);
   switch (field.type) {
     case "bool":
       return (
@@ -23,12 +23,12 @@ export function FieldInput({ field, value, onChange }: Props) {
           <select id={id} value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
             {value == null && <option value="">Choose…</option>}
             {(field.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>{help}</div>
+          </select></div>
       );
     case "number":
       return (
         <div className="field">{label}
-          <input id={id} inputMode="decimal" value={value ?? ""} onChange={(e) => onChange(num(e.target.value))} />{help}</div>
+          <input id={id} inputMode="decimal" placeholder={hint} value={value ?? ""} onChange={(e) => onChange(num(e.target.value))} /></div>
       );
     case "triple":
       return (
@@ -36,22 +36,23 @@ export function FieldInput({ field, value, onChange }: Props) {
           <div className="triple">
             {[0, 1, 2].map((i) => (
               <input key={i} aria-label={`${field.label} ${["x", "y", "z"][i]}`} inputMode="decimal"
+                placeholder={(field.path === "room_dims_m" ? ["Length", "Width", "Height"] : ["x", "y", "z"])[i]}
                 value={value?.[i] ?? ""} onChange={(e) => {
                   const v = [...(value || [null, null, null])];
                   v[i] = num(e.target.value);
                   onChange(v.every((x) => x === null) ? null : v);
                 }} />
             ))}
-          </div>{help}</div>
+          </div></div>
       );
     case "intlist":
     case "list":
       return (
         <div className="field">{label}
-          <input id={id} value={(value || []).join(", ")} onChange={(e) => {
+          <input id={id} placeholder={hint} value={(value || []).join(", ")} onChange={(e) => {
             const parts = e.target.value.split(",").map((x) => x.trim()).filter(Boolean);
             onChange(field.type === "intlist" ? parts.map(Number) : parts);
-          }} />{help}</div>
+          }} /></div>
       );
     case "channels":
       return <Channels value={value || []} onChange={onChange} />;
@@ -59,8 +60,8 @@ export function FieldInput({ field, value, onChange }: Props) {
       return (
         <div className="field">{label}
           <input id={id} value={value ?? ""} spellCheck={false} autoCapitalize="off"
-            placeholder={field.type === "file" ? "/Users/you/Downloads/cal.txt" : undefined}
-            onChange={(e) => onChange(e.target.value.trim() === "" ? null : e.target.value.trim())} />{help}</div>
+            placeholder={hint ?? (field.type === "file" ? "/Users/you/Downloads/cal.txt" : undefined)}
+            onChange={(e) => onChange(e.target.value.trim() === "" ? null : e.target.value.trim())} /></div>
       );
   }
 }
@@ -81,14 +82,14 @@ function Channels({ value, onChange }: { value: Ch[]; onChange: (v: Ch[]) => voi
                 <option value="main">main</option><option value="sub">sub</option></select></td>
               <td><input aria-label="Output" inputMode="numeric" value={c.dsp_output}
                 onChange={(e) => set(i, { dsp_output: Number(e.target.value) })} /></td>
-              <td><button type="button" className="link" aria-label={`Remove ${c.role}`}
+              <td><button type="button" className="sq" aria-label={`Remove ${c.role}`}
                 onClick={() => onChange(value.filter((_, k) => k !== i))}>✕</button></td>
             </tr>
           ))}
         </tbody>
       </table>
-      <button type="button" className="link" onClick={() => onChange([...value, { role: `SUB${value.filter((c) => c.kind === "sub").length + 1}`,
-        kind: "sub", dsp_output: value.length }])}>+ add speaker</button>
+      <button type="button" onClick={() => onChange([...value, { role: `SUB${value.filter((c) => c.kind === "sub").length + 1}`,
+        kind: "sub", dsp_output: value.length }])}>Add speaker</button>
     </div>
   );
 }

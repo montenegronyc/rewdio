@@ -16,6 +16,13 @@ export type State = {
   pending_action: Action | null; crawl: Crawl | null; simulated: boolean;
   last_status?: string | null; last_error?: string | null; measured_ok: boolean | null;
   metrics: Record<string, any> | null; fails: string[] | null; log: string[]; dsp: Record<string, any>;
+  curves: Record<string, Curves>;
+};
+export type Point = [number, number];
+export type Curves = { predicted?: Point[]; measured?: Point[]; target?: Point[] };
+export type DspSetup = {
+  id: string; name: string; created: string; note: string | null; source: string;
+  curve: Point[] | null; bass_std_db: number | null; active: boolean;
 };
 
 const KEY = "rewdio-token";
@@ -73,3 +80,11 @@ export async function saveSetup(updates: Record<string, unknown>): Promise<{ ok:
   return r.json();
 }
 export const runChecks = (checks: string[]): Promise<Record<string, Check>> => post("/api/setup/check", { checks });
+
+export async function getSetups(): Promise<DspSetup[]> {
+  const r = await fetch("/api/setups", { headers: headers() });
+  if (r.status === 401) throw new Unpaired();
+  return r.json();
+}
+export const setupOp = (op: "save" | "recall" | "delete" | "rename", body: Record<string, string>) =>
+  post("/api/setups", { op, ...body });

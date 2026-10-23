@@ -1,4 +1,4 @@
-"""Live GUI: the phone-first crawl remote (React, built into static/app) and the classic status page.
+"""Live GUI: the React app (built into static/app) for the phone and the computer.
 
 Serves the built app, generated design-token CSS, and the JSON/SSE API in remote.py.
 """
@@ -13,16 +13,15 @@ from pathlib import Path
 from typing import Callable
 
 from starlette.applications import Starlette
-from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.responses import HTMLResponse, Response
 from starlette.routing import Route
 
 from .remote import LOCAL, lan_ip, token_for
 from .remote import routes as remote_routes
-from .state import snapshot
 from .tokens import tokens_css
 
 TYPES = {".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json",
-         ".png": "image/png", ".webmanifest": "application/manifest+json", ".html": "text/html"}
+         ".png": "image/png", ".woff2": "font/woff2", ".woff": "font/woff", ".webmanifest": "application/manifest+json", ".html": "text/html"}
 
 
 def _static(path: str) -> bytes | None:
@@ -64,15 +63,12 @@ def build_app(runtime: Callable) -> HostGuard:
     async def index(request):
         html = _static("app/index.html")
         if html is None:
-            return HTMLResponse(_static("index.html"))  # classic page if the app isn't built
+            return Response("The GUI isn't built: run `npm ci && npm run build` in web/.", status_code=503)
         if (request.client.host if request.client else "") in LOCAL:
             # this computer is trusted: hand its page the token so its buttons work without pairing
             tag = f'<script>window.__rewdioToken={json.dumps(token_for(runtime()))}</script>'
             html = html.replace(b"</head>", tag.encode() + b"</head>", 1)
         return HTMLResponse(html)
-
-    async def classic(_):
-        return HTMLResponse(_static("index.html"))
 
     async def asset(request):
         path = request.path_params["path"]
@@ -84,11 +80,7 @@ def build_app(runtime: Callable) -> HostGuard:
         ext = "." + path.rsplit(".", 1)[-1] if "." in path else ""
         return Response(data, media_type=TYPES.get(ext, "application/octet-stream"))
 
-    async def legacy_state(_):  # the classic page polls this
-        return JSONResponse(snapshot(runtime().session))
-
-    app = Starlette(routes=[Route("/", index), Route("/classic", classic), Route("/api/classic-state", legacy_state),
-                            *remote_routes(runtime), Route("/static/{path:path}", asset)])
+    app = Starlette(routes=[Route("/", index), *remote_routes(runtime), Route("/static/{path:path}", asset)])
 
     def allowed() -> set[str]:
         hosts = {"localhost", "127.0.0.1", "::1", "testserver"}

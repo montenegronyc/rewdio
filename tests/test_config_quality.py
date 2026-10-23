@@ -77,15 +77,24 @@ async def test_dashboard_serves_tokens_and_state(sim_runtime):
     await drive(rt)
     client = TestClient(build_app(lambda: rt))
     css = client.get("/static/tokens.css").text
-    for name in load_tokens()["color"]["light"]:
+    for name in load_tokens()["color"]:
         assert f"--color-{name}:" in css
-    assert "prefers-color-scheme: dark" in css and css == tokens_css()
-    styles = client.get("/static/styles.css").text
-    import re
-    assert not re.search(r"#[0-9a-fA-F]{3,6}\b", styles), "styles.css must only use token variables"
+    assert css == tokens_css()
     st = client.get("/api/state").json()
     assert st["done"] and st["curves"]["MLP"]["measured"] and set(st["dsp"]) == {"L", "R", "SUB1", "SUB2"}
-    assert client.get("/").status_code == 200 and client.get("/classic").status_code == 200
+    assert client.get("/").status_code == 200
+    font = next(p.name for p in (SRC / "dashboard" / "static" / "app" / "assets").glob("*600-normal*.woff2"))
+    assert client.get(f"/static/app/assets/{font}").headers["content-type"] == "font/woff2"
+
+
+def test_ui_is_monochrome_mixed_case_and_rectangular():
+    import re
+    tokens = (SRC / "dashboard" / "tokens.json").read_text()
+    hexes = {h.lower() for h in re.findall(r"#[0-9a-fA-F]{6}\b", tokens)}
+    assert hexes <= {"#000000", "#f3eee2"}, hexes  # cream and black; colour only ever for waterfalls
+    assert "radius" not in tokens
+    css = (SRC.parents[1] / "web" / "src" / "styles.css").read_text()
+    assert "uppercase" not in css and "border-radius: 0" in css and not re.search(r"border-radius:\s*[1-9]", css)
 
 
 async def test_loopback_check_passes_when_wired_and_stops_when_unplugged(sim_runtime):

@@ -40,10 +40,15 @@ def _sound(state: DspState, roles: list[str]) -> str:
 
 
 def _matching_sweep(s: Session):
-    """The latest full-system sweep at the main seat taken with the DSP exactly as it is now."""
+    """The latest full-system sweep at the main seat taken with the DSP exactly as it is now.
+
+    "listening" sweeps are full-system sweeps taken just to document a setup; the autopilot never reuses them.
+    """
     roles = [c.role for c in s.config.channels]
     now = _sound(s.dsp, roles)
-    for m in reversed(s.find(kind="system", position=s.config.mic_positions[0])):
+    seat = s.config.mic_positions[0]
+    sweeps = sorted(s.find(kind="system", position=seat) + s.find(kind="listening", position=seat), key=lambda m: m.created)
+    for m in reversed(sweeps):
         if _sound(m.snapshot, roles) == now:
             return m
     return None

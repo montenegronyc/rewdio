@@ -1,28 +1,18 @@
-"""Compile tokens.json into CSS custom properties (light, dark, and an explicit data-theme override)."""
+"""Compile tokens.json into CSS custom properties."""
 
 from __future__ import annotations
 
 import json
 from importlib import resources
 
+GROUPS = ("color", "space", "line", "font", "chart", "motion", "layout")
+
 
 def load_tokens() -> dict:
     return json.loads(resources.files("rewdio.dashboard").joinpath("tokens.json").read_text())
 
 
-def _vars(prefix: str, d: dict) -> list[str]:
-    return [f"  --{prefix}-{k}: {v};" for k, v in d.items() if not k.startswith("$")]
-
-
 def tokens_css(tokens: dict | None = None) -> str:
     t = tokens or load_tokens()
-    shared = []
-    for group in ("space", "radius", "font", "chart", "motion", "layout"):
-        shared += _vars(group, t[group])
-    light = _vars("color", t["color"]["light"])
-    dark = _vars("color", t["color"]["dark"])
-    return "\n".join([
-        ":root {", *shared, *light, "}",
-        "@media (prefers-color-scheme: dark) {", ':root:not([data-theme="light"]) {', *dark, "}", "}",
-        ':root[data-theme="dark"] {', *dark, "}",
-    ]) + "\n"
+    lines = [f"  --{g}-{k}: {v};" for g in GROUPS for k, v in t[g].items() if not k.startswith("$")]
+    return "\n".join([":root {", *lines, "}"]) + "\n"

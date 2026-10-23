@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Check, getSetup, runChecks, saveSetup, Setup } from "./api";
 import { FieldInput } from "./Fields";
 
-// The setup wizard: one step at a time, saved as you go. Same steps as Claude's `setup` prompt.
-export function SetupView() {
+// The settings wizard: one step at a time, saved as you go. Same steps as Claude's `setup` prompt.
+export function SettingsView() {
   const [setup, setSetup] = useState<Setup | null>(null);
   const [i, setI] = useState(0);
   const [draft, setDraft] = useState<Record<string, any>>({});
@@ -12,7 +12,7 @@ export function SetupView() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { getSetup().then(setSetup).catch(() => setMsg({ ok: false, text: "Couldn't load settings" })); }, []);
-  if (!setup) return <p className="muted">{msg?.text ?? "Loading settings…"}</p>;
+  if (!setup) return <p className="soft">{msg?.text ?? "Loading"}</p>;
   const step = setup.steps[i];
   const value = (path: string, fallback: any) => (path in draft ? draft[path] : fallback);
   const dirty = Object.keys(draft).length > 0;
@@ -38,35 +38,34 @@ export function SetupView() {
       <ol className="steps">
         {setup.steps.map((s, k) => (
           <li key={s.id}><button className={k === i ? "on" : ""} onClick={() => { setI(k); setDraft({}); setMsg(null); setChecks({}); }}>
-            {k + 1}. {s.title}</button></li>
+            {s.title}</button></li>
         ))}
       </ol>
       <section className="card">
         <h2>{step.title}</h2>
-        <p className="muted">{step.intro}</p>
         {step.fields.map((f) => (
           <FieldInput key={f.path} field={f} value={value(f.path, f.value)}
             onChange={(v) => setDraft({ ...draft, [f.path]: v })} />
         ))}
         {step.checks?.length ? (
           <div className="checks">
-            <button type="button" className="link" onClick={check}>Test</button>
+            <button type="button" onClick={check}>Test</button>
             {step.checks.map((c) => checks[c] && (
-              <p key={c} className={checks[c].ok ? "ok" : checks[c].ok === false ? "bad" : "muted"}>
+              <p key={c} className={checks[c].ok === false ? "note" : "soft"}>
                 {checks[c].ok ? "✓" : checks[c].ok === false ? "✗" : "–"} {checks[c].message}</p>
             ))}
           </div>
         ) : null}
-        {msg && <p className={msg.ok ? "ok" : "bad"}>{msg.text}</p>}
+        {msg && <p className={msg.ok ? "soft" : "note"}>{msg.text}</p>}
         <div className="row-buttons">
-          {i > 0 && <button type="button" className="secondary" onClick={() => { setI(i - 1); setDraft({}); setMsg(null); }}>Back</button>}
-          <button type="button" className="secondary" disabled={!dirty || saving} onClick={() => save(false)}>Save</button>
-          <button type="button" className="go" disabled={saving} onClick={() => (dirty ? save(true) : setI(Math.min(i + 1, setup.steps.length - 1)))}>
+          {i > 0 && <button type="button" onClick={() => { setI(i - 1); setDraft({}); setMsg(null); }}>Back</button>}
+          <button type="button" disabled={!dirty || saving} onClick={() => save(false)}>Save</button>
+          <button type="button" className="solid" disabled={saving} onClick={() => (dirty ? save(true) : setI(Math.min(i + 1, setup.steps.length - 1)))}>
             {i === setup.steps.length - 1 ? (dirty ? "Save" : "Done") : dirty ? "Save & next" : "Next"}</button>
         </div>
       </section>
-      {setup.missing.length > 0 && <p className="muted">Still needed: {setup.missing.join(", ")}.</p>}
-      <p className="muted small">Saved to {setup.settings_file}</p>
+      {setup.missing.length > 0 && <p className="soft">Missing: {setup.missing.join(", ")}</p>}
+      <p className="soft small">{setup.settings_file}</p>
     </div>
   );
 }

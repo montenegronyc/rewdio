@@ -5,6 +5,11 @@ An MCP server that lets Claude calibrate a subwoofer + mains system on its own. 
 polarity, PEQ), reads every result, and keeps looping until level, timing, phase and response
 targets are met. You only get asked to do physical things: move the mic, move a sub.
 
+<p>
+  <img src="docs/img/crawl.gif" width="270" alt="The sub crawl on a phone: the next grid spot in large type, pulsing on the room plan">
+  <img src="docs/img/ab.gif" width="270" alt="A/B switching between two saved setups, then a blind comparison">
+</p>
+
 ## What it does
 
 1. **Runs sweeps itself.** Configures REW's sweep, level, timing reference, protection limits and
@@ -178,6 +183,7 @@ depends on what's available:
 | `measure`, `analyze_measurement`, `list_measurements` | manual sweeps and summaries |
 | `set_channel`, `solo`, `get_dsp_state` | direct miniDSP control |
 | `set_mic_calibration` | load the mic cal file into REW |
+| `list_setups`, `save_setup`, `recall_setup`, `delete_setup` | named, dated DSP setups for A/B listening |
 | `reset_calibration` | start over (measurements kept) |
 | `dashboard_url` | where the live dashboard is running |
 
@@ -199,9 +205,15 @@ For the sub crawl you're down on the floor with a mic, so the crawl runs from yo
    last row and column sit 35 cm from the back and right walls, so every corner is a spot.
 3. The phone shows the next spot in huge letters (**C5**, with its distances from the walls). That spot
    pulses on the room plan. Put the mic there and tap **Mic is here**. Rewdio runs the sweep and the
-   spot turns green, amber or red: how good one sub there would be at your seat.
+   spot fills in: the darker it is, the better one sub there would be at your seat.
 4. Tap any spot a sub can't go (sofa, doorway) to skip it.
-5. At the end, the phone shows where to put the subs (**SUB1 → A3, SUB2 → H5**) with a line between them.
+5. At the end, the phone shows where to put the subs (**SUB1 → A3, SUB2 → H5**) as squares joined by a line.
+
+<p>
+  <img src="docs/img/crawl-setup.png" width="240" alt="Mark A1">
+  <img src="docs/img/crawl-target.png" width="240" alt="Mid-crawl: the current spot and the spots measured so far">
+  <img src="docs/img/crawl-place.png" width="240" alt="Where the subs go">
+</p>
 
 By default only the outer ring of the grid is visited (`crawl_grid.mode: "perimeter"`), because subs live
 near walls. The route snakes so you walk the shortest path. Spacing, the A1 offsets, mic height and
@@ -216,19 +228,48 @@ skipped cells are under `crawl_grid` in the config.
 The front end is React + TypeScript in `web/`. It's built into the package, so you don't need Node to run
 Rewdio; run `cd web && npm install && npm run build` only if you change it.
 
-### Live dashboard
+### The GUI
 
-The classic status page is at **http://127.0.0.1:8765/classic** (the phone app's Status tab links to it).
-It shows:
-- the phase, and what Rewdio is waiting on you to do
-- bass deviation, crossover summation and prediction error
-- measured vs predicted vs target response at each seat
-- the miniDSP settings
-- quality and cross-check results, the solver's notes, and the log
+One page at **http://127.0.0.1:8765/**, on the computer or a paired phone, with four tabs:
+- **Room:** the crawl grid and the next spot.
+- **Status:** phase, bass deviation, crossover summation, L/R balance, and measured / predicted / target
+  response at each seat. Open the log underneath it.
+- **Setups:** saved setups and the A/B switch (below).
+- **Settings:** the setup wizard.
 
-Styling comes entirely from design tokens in `src/rewdio/dashboard/tokens.json`, which are compiled to CSS
-custom properties for light and dark themes. Edit that file to restyle the dashboard; a test fails if
-`styles.css` contains a literal colour.
+<p>
+  <img src="docs/img/status.png" width="240" alt="Status">
+  <img src="docs/img/settings.png" width="240" alt="Settings">
+</p>
+
+The look is monochrome: cream and black, Public Sans (Light, Medium, SemiBold, bundled so it works
+offline), hairline dividers and rectangular controls. Colour is reserved for waterfall plots. Every value
+comes from design tokens in `src/rewdio/dashboard/tokens.json`, compiled to CSS custom properties; tests
+fail if the stylesheet contains a literal colour or a rounded corner, or if the tokens contain anything but
+cream and black.
+
+### Setups and A/B listening
+
+A setup is a snapshot of everything Rewdio manages on the miniDSP (gain, delay, polarity, PEQ on every
+output), saved as a named, dated file: `~/.rewdio/setups/2026-10-23_0912_calibrated.json`. A finished
+calibration saves itself as **Calibrated**. Save more candidates from the **Setups** tab or by asking
+Claude ("save this as Late night, less bass").
+
+To compare by ear, tap **A** or **B** on two setups, then tap the big A and B keys to switch. Each switch
+writes the whole setup to the miniDSP in one go, with every output playing. **Blind** relabels them 1 and
+2 in a random order and hides which one is active, until you tap **Reveal**.
+
+<p>
+  <img src="docs/img/setups.png" width="240" alt="Two setups on A and B">
+  <img src="docs/img/setups-blind.png" width="240" alt="Blind comparison">
+</p>
+
+Each setup carries a small response thumbnail and its bass deviation when it was swept as-is. If you
+save one Claude hasn't measured, `save_setup` with `measure_first` takes one sweep first. The setup on the
+miniDSP is marked by comparing files with the DSP, so the mark is always current. The folder can be moved
+with `setups.dir`.
+
+Louder usually sounds better, so keep that in mind when two setups differ in overall level.
 
 ### Restraint: as little DSP as possible
 
@@ -287,7 +328,7 @@ mains outputs). The report and dashboard show the L/R difference before and afte
 ### Setup wizard
 
 You don't need to edit JSON. Use either:
-- **In the browser:** the **Setup** tab at http://127.0.0.1:8765/ (on the computer, or on a paired phone).
+- **In the browser:** the **Settings** tab at http://127.0.0.1:8765/ (on the computer, or on a paired phone).
   Nine steps:
   1. Connections, with Test buttons for REW and the miniDSP
   2. Your miniDSP model (sets the DSP sample rate)
@@ -361,6 +402,14 @@ the subs. See [docs/PLAN.md](docs/PLAN.md) for the design and
 [docs/research/polycam.md](docs/research/polycam.md) evaluates importing a Polycam/RoomPlan room scan.
 
 Every module is kept under 500 lines, and a test enforces it.
+
+The README images are captured from the real GUI driving a simulated calibration:
+
+```bash
+uv run python docs/capture/serve.py /tmp/rewdio-capture 8799 &
+node docs/capture/capture.mjs http://127.0.0.1:8799/ /tmp/rewdio-shots   # needs Playwright
+sh docs/capture/gifs.sh /tmp/rewdio-shots docs/img                       # needs ffmpeg
+```
 
 ## Credits
 
