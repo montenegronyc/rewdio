@@ -10,6 +10,8 @@ targets are met. You only get asked to do physical things: move the mic, move a 
   <img src="docs/img/ab.gif" width="270" alt="A/B switching between two saved setups, then a blind comparison">
 </p>
 
+<p><img src="docs/img/waterfall-plot.png" width="548" alt="Waterfall: how long each bass frequency keeps ringing after the sound stops, coloured from yellow (now) to purple (340 ms later)"></p>
+
 ## What it does
 
 1. **Runs sweeps itself.** Configures REW's sweep, level, timing reference, protection limits and
