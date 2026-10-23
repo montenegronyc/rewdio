@@ -49,8 +49,11 @@ class Session:
         base = Path(root or os.environ.get("REWDIO_HOME", Path.home() / ".rewdio"))
         self.dir = base / name
         (self.dir / "data").mkdir(parents=True, exist_ok=True)
-        # defaults.json < user config file < what this session saved (so new default keys still appear)
-        self.config = load_config(self._read("config.json", None))
+        # Settings live in ONE place, the user's settings file (written by the setup wizard); a session
+        # only holds measurement and run state. defaults.json < settings file.
+        env = os.environ.get("REWDIO_CONFIG")
+        self.settings_path = Path(env) if env else base / "config.json"
+        self.config = load_config(user_file=self.settings_path)
         self.dsp = self._load("dsp.json", DspState)
         self.workflow = self._load("workflow.json", WorkflowState)
         self.measurements: list[MeasurementRecord] = [
@@ -73,7 +76,6 @@ class Session:
 
     def save(self) -> None:
         self.version += 1
-        self._write("config.json", self.config.model_dump(mode="json"))
         self._write("dsp.json", self.dsp.model_dump(mode="json"))
         self._write("workflow.json", self.workflow.model_dump(mode="json"))
         self._write("measurements.json", [m.model_dump(mode="json") for m in self.measurements])
@@ -101,6 +103,9 @@ class Session:
             if all((getattr(m, k) if hasattr(m, k) else m.extra.get(k)) == v for k, v in match.items()):
                 out.append(m)
         return out
+
+    def reload_config(self) -> None:
+        self.config = load_config(user_file=self.settings_path)
 
     def reset_workflow(self) -> None:
         self.workflow = WorkflowState()

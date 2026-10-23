@@ -9,8 +9,8 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from .analysis.metrics import summarize
-from .config import SystemConfig, deep_merge
 from .dashboard.app import serve_in_background
+from .engine import setup
 from .engine.runtime import Runtime
 from .prompts import register as register_prompts
 
@@ -108,20 +108,33 @@ async def dashboard_url() -> dict:
 
 
 @mcp.tool()
-async def configure(updates: dict) -> dict:
-    """Update the rig configuration (merged into the current one, validated, persisted).
+async def setup_status() -> dict:
+    """The setup wizard: every step with its current values, plus what's still missing. Walk the user
+    through it one step at a time (see the `setup` prompt) and save with save_settings."""
+    return _clean(await setup.status(runtime()))
 
-    Common keys: channels [{role, kind: main|sub, dsp_output, rew_output_channel}], crossover_hz,
-    timing_mode (loopback | acoustic | sum_fit), mic_positions ["MLP", ...], do_sub_crawl,
-    crawl_positions, room_dims_m [L, W, H], seat_xyz {"MLP": [x, y, z]}, mic_cal_path,
-    mic_sensitivity_dbfs, dsp_sample_rate, dsp_max_delay_ms, peq_slots, max_sub_gain_db,
-    target {bass_boost_db, shelf_hz}, convergence {...}, sweep {...}, rew_url, minidsp_url.
+
+@mcp.tool()
+async def save_settings(updates: dict) -> dict:
+    """Save settings to the user's settings file (validated; only differences from defaults are kept).
+
+    Keys are dotted config paths, e.g. {"mic_cal_path": "/Users/me/cal.txt", "room_dims_m": [5.8, 4.3, 2.6],
+    "seat_xyz.MLP": [3.6, 2.15, 1.1], "timing_mode": "loopback", "crawl_grid.spacing_m": 0.75,
+    "dashboard.allow_lan": true}. "@minidsp_model": "2x4HD" applies that model's preset.
     """
-    rt = runtime()
-    rt.session.config = SystemConfig.model_validate(deep_merge(rt.session.config.model_dump(mode="json"), updates))
-    rt.session.save()
-    await rt.reconnect()
-    return {"ok": True, "config": rt.session.config.model_dump(mode="json")}
+    return _clean(await setup.save(runtime(), updates))
+
+
+@mcp.tool()
+async def test_setup(checks: list[str] | None = None) -> dict:
+    """Check the setup: 'rew' and 'minidsp' connections, 'mic_cal' and 'house_curve' files (default: all)."""
+    return _clean(await setup.check(runtime(), checks or ["rew", "minidsp", "mic_cal", "house_curve"]))
+
+
+@mcp.tool()
+async def configure(updates: dict) -> dict:
+    """Same as save_settings, kept for compatibility. Nested dicts are fine, e.g. {"target": {"bass_boost_db": 3}}."""
+    return _clean(await setup.save(runtime(), updates))
 
 
 @mcp.tool()
@@ -237,11 +250,11 @@ async def get_dsp_state() -> dict:
 
 @mcp.tool()
 async def set_mic_calibration(cal_file_path: str, sensitivity_dbfs_at_94db: float | None = None) -> dict:
-    """Load the SoundID Reference (or any) mic calibration file into REW and remember it."""
+    """Save the SoundID Reference (or any) mic calibration file in settings and load it into REW."""
     rt = runtime()
-    rt.session.config.mic_cal_path = cal_file_path
-    rt.session.config.mic_sensitivity_dbfs = sensitivity_dbfs_at_94db
-    rt.session.save()
+    res = await setup.save(rt, {"mic_cal_path": cal_file_path, "mic_sensitivity_dbfs": sensitivity_dbfs_at_94db})
+    if not res.get("ok"):
+        return res
     return _clean(await rt.rew.set_input_cal(cal_file_path, sensitivity_dbfs_at_94db))
 
 

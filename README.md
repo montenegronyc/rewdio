@@ -169,7 +169,8 @@ depends on what's available:
 | Tool | Purpose |
 |---|---|
 | `rewdio_status` | connectivity, config, phase, pending user action |
-| `configure` | channel map, crossover, timing mode, seats, room, targets, limits |
+| `setup_status`, `save_settings`, `test_setup` | the setup wizard (see `setup` prompt) |
+| `configure` | same as `save_settings` (kept for compatibility) |
 | `autopilot_step` | run the loop until it needs you or finishes |
 | `confirm_user_action` | report a physical task done (with optional x/y/z) |
 | `get_report` | applied settings, predicted vs measured metrics, notes |
@@ -283,15 +284,37 @@ mains outputs). The report and dashboard show the L/R difference before and afte
   boundary-cancellation (SBIR) hints with the implied distance. With several seats, seat-to-seat spread and
   outlier seats are reported.
 
+### Setup wizard
+
+You don't need to edit JSON. Use either:
+- **In the browser:** the **Setup** tab at http://127.0.0.1:8765/ (on the computer, or on a paired phone).
+  Nine steps:
+  1. Connections, with Test buttons for REW and the miniDSP
+  2. Your miniDSP model (sets the DSP sample rate)
+  3. Mic calibration file (checked to exist)
+  4. Which output feeds which speaker
+  5. Timing (loopback or not)
+  6. Room size and seats
+  7. Crawl grid
+  8. Crossover and target
+  9. Phone access
+- **In Claude:** ask it to set you up, or use the `setup` prompt. Claude walks through the same steps in
+  conversation and accepts answers like "the room is about 19 by 14 feet".
+
+Both save to your settings file (`~/.rewdio/config.json`), keeping only what differs from the defaults.
+Every save is validated first, so a bad value is explained and nothing is written. Changes take effect
+immediately. The steps themselves are defined in `src/rewdio/wizard.json`.
+
 ### Configuration
 
-Every number lives in JSON; nothing is hard-coded in Python.
+Every number lives in JSON; nothing is hard-coded in Python. The setup wizard writes this for you.
 
 1. `src/rewdio/defaults.json` ships every default: rig, sweep, convergence targets, and a `tuning`
    section with every solver band, threshold, grid step and limit.
 2. Your file at `~/.rewdio/config.json` (or `$REWDIO_CONFIG`) overrides any subset. A typo in a key is
    rejected, not ignored.
-3. The `configure` tool layers per-session changes on top, which are saved with the session.
+3. There is one settings file. Sessions store only measurements and run state, so a settings change
+   applies to every session, including one already in progress.
 
 Example `~/.rewdio/config.json`:
 

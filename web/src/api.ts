@@ -55,3 +55,20 @@ export const step = () => post("/api/step");
 export const setCell = (code: string, enabled: boolean) => post("/api/crawl/cell", { code, enabled });
 export const pairing = async () => (await fetch("/api/pair")).ok ? (await fetch("/api/pair")).json() : null;
 export const eventsUrl = () => `/api/events?t=${encodeURIComponent(token())}`;
+
+export type Field = { path: string; label: string; type: string; help?: string; optional?: boolean; options?: string[]; value: any };
+export type Step = { id: string; title: string; intro: string; fields: Field[]; checks?: string[] };
+export type Setup = { settings_file: string; steps: Step[]; missing: string[]; busy: boolean };
+export type Check = { ok: boolean | null; message: string };
+
+export async function getSetup(): Promise<Setup> {
+  const r = await fetch("/api/setup", { headers: headers() });
+  if (r.status === 401) throw new Unpaired();
+  return r.json();
+}
+export async function saveSetup(updates: Record<string, unknown>): Promise<{ ok: boolean; message?: string } & Partial<Setup>> {
+  const r = await fetch("/api/setup", { method: "POST", headers: headers(), body: JSON.stringify({ updates }) });
+  if (r.status === 401) throw new Unpaired();
+  return r.json();
+}
+export const runChecks = (checks: string[]): Promise<Record<string, Check>> => post("/api/setup/check", { checks });

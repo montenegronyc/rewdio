@@ -118,6 +118,27 @@ def routes(runtime: Callable) -> list[Route]:
         segno.make(pairing_url(runtime()), error="m").save(buf, kind="svg", scale=6, border=2, dark="#111111")
         return Response(buf.getvalue(), media_type="image/svg+xml")
 
-    return [Route("/api/state", state), Route("/api/events", events), Route("/api/confirm", confirm, methods=["POST"]),
+    async def setup_get(req):
+        if not (is_local(req) or authed(req)):
+            return deny()
+        from ..engine import setup
+        return JSONResponse(json.loads(json.dumps(await setup.status(runtime()), default=str)))
+
+    async def setup_save(req):
+        if not authed(req):
+            return deny()
+        from ..engine import setup
+        res = await setup.save(runtime(), (await req.json()).get("updates", {}))
+        return JSONResponse(json.loads(json.dumps(res, default=str)), status_code=200 if res.get("ok") else 400)
+
+    async def setup_check(req):
+        if not authed(req):
+            return deny()
+        from ..engine import setup
+        return JSONResponse(await setup.check(runtime(), (await req.json()).get("checks", [])))
+
+    return [Route("/api/setup", setup_get), Route("/api/setup", setup_save, methods=["POST"]),
+            Route("/api/setup/check", setup_check, methods=["POST"]),
+            Route("/api/state", state), Route("/api/events", events), Route("/api/confirm", confirm, methods=["POST"]),
             Route("/api/step", step, methods=["POST"]), Route("/api/crawl/cell", cell, methods=["POST"]),
             Route("/api/pair", pair), Route("/api/pair/qr.svg", qr)]

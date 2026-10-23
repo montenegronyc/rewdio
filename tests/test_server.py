@@ -10,7 +10,8 @@ async def test_tools_drive_a_full_calibration(tmp_path, monkeypatch):
     server._rt = None
     async with Client(server.mcp) as c:
         names = {t.name for t in (await c.list_tools()).tools}
-        assert {"autopilot_step", "confirm_user_action", "configure", "get_report", "measure"} <= names
+        assert {"autopilot_step", "confirm_user_action", "configure", "get_report", "measure",
+                "setup_status", "save_settings", "test_setup"} <= names
 
         def data(res):
             assert not res.is_error, res

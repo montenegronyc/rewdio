@@ -3,6 +3,7 @@ import { Cell, confirm, pairing, setCell, State, step } from "./api";
 import { ActionCard, PlaceCard, SetupCard, TargetBanner } from "./Cards";
 import { useBuzzOnChange, useLiveState, useWakeLock } from "./hooks";
 import { RoomPlan } from "./RoomPlan";
+import { SetupView } from "./SetupView";
 import { StatusView } from "./StatusView";
 
 function primaryLabel(s: State): string {
@@ -17,7 +18,7 @@ function primaryLabel(s: State): string {
 
 export default function App() {
   const { state, unpaired, offline } = useLiveState();
-  const [tab, setTab] = useState<"crawl" | "status">("crawl");
+  const [tab, setTab] = useState<"crawl" | "status" | "setup">("crawl");
   const [pair, setPair] = useState<{ url: string; lan: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const crawl = state?.crawl ?? null;
@@ -25,7 +26,7 @@ export default function App() {
   useWakeLock(crawling);
   useBuzzOnChange(state?.pending_action?.key);
   useEffect(() => { pairing().then(setPair).catch(() => undefined); }, []);
-  useEffect(() => { if (state && !state.crawl) setTab("status"); }, [state?.crawl]);
+  useEffect(() => { if (state && !state.crawl && tab === "crawl") setTab("status"); }, [state?.crawl]);
 
   if (unpaired) {
     return <main className="center"><section className="hero generic"><div className="hero-label">Not paired</div>
@@ -55,11 +56,12 @@ export default function App() {
         <nav>
           <button className={tab === "crawl" ? "on" : ""} onClick={() => setTab("crawl")} disabled={!crawl}>Room</button>
           <button className={tab === "status" ? "on" : ""} onClick={() => setTab("status")}>Status</button>
+          <button className={tab === "setup" ? "on" : ""} onClick={() => setTab("setup")}>Setup</button>
         </nav>
         {state.simulated && <span className="tag">simulator</span>}
       </header>
       <main>
-        {tab === "crawl" && crawl ? (
+        {tab === "setup" ? <SetupView /> : tab === "crawl" && crawl ? (
           <>
             {crawl.setup_needed && <SetupCard crawl={crawl} />}
             {!crawl.setup_needed && crawl.current && <TargetBanner crawl={crawl} />}
@@ -76,13 +78,13 @@ export default function App() {
           <StatusView state={state} pair={pair} />
         )}
       </main>
-      <footer className="actions">
+      {tab !== "setup" && <footer className="actions">
         {error && <p className="error">{error}</p>}
         {offline && <p className="error">Connection lost; retrying…</p>}
         <button className="primary" disabled={state.busy || (state.done && !a)} onClick={onPrimary}>
           {state.busy && <span className="spinner" aria-hidden />}{primaryLabel(state)}
         </button>
-      </footer>
+      </footer>}
     </div>
   );
 }
