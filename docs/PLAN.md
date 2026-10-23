@@ -66,11 +66,16 @@ boosted.
 
 ```
 src/rewdio/
-  config.py          system config (channel map, DSP limits, targets), persisted
+  defaults.json      every default and tuning constant (overlaid by ~/.rewdio/config.json, then session)
+  config.py          strict pydantic models for that JSON + the layered loader
   rew/               REW HTTP client + base64 big-endian float codec
   minidsp/           minidsp-rs HTTP client, biquad maths (miniDSP sign convention), shadow state
   analysis/          responses, smoothing, metrics, alignment, sum-fit, placement, PEQ, target curve
-  engine/            session store, measurement orchestration, autopilot workflow
+  analysis/quality.py, diagnostics.py   quality gate; modes / SBIR / seat report
+  engine/            session store, rig (REW + DSP), autopilot core
+  engine/phases/     setup, crawl, baseline, solve+verify (one module per stage)
+  dashboard/         live Starlette dashboard; tokens.json design tokens -> CSS variables
+  prompts.py         MCP prompt + resources
   sim/               virtual room (modal sum), fake REW + fake miniDSP over httpx MockTransport
   server.py          MCP tools
 tests/               unit tests + full closed-loop calibration against the simulator

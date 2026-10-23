@@ -25,7 +25,7 @@ function chart(el, series) {
   const X = (f) => P.l + ((Math.log(f) - x0) / (x1 - x0)) * (W - P.l - P.r);
   const Y = (d) => P.t + ((ymax - Math.max(ymin, Math.min(ymax, d))) / (ymax - ymin)) * (H - P.t - P.b);
   let g = "";
-  [20, 30, 50, 80, 100, 200, 300, 500].forEach((f) => {
+  (W < 600 ? [20, 50, 100, 200, 500] : [20, 30, 50, 80, 100, 200, 300, 500]).forEach((f) => {
     if (Math.log(f) < x0 || Math.log(f) > x1) return;
     g += `<line class="grid-line" x1="${X(f)}" x2="${X(f)}" y1="${P.t}" y2="${H - P.b}"/>`;
     g += `<text class="axis" x="${X(f)}" y="${H - 6}" text-anchor="middle">${f}</text>`;

@@ -21,7 +21,8 @@ targets are met. You only get asked to do physical things: move the mic, move a 
 5. **PEQ as a last resort.** Only when alignment alone misses the target. Cut-biased, boosts capped
    at +3 dB, and seat-dependent nulls are left alone.
 
-Every change is predicted, applied, then verified by a real sweep. If prediction and measurement
+Every sweep passes a quality gate (SNR, clipping, dead channel, repeatability) before it can feed the
+solver. Every change is predicted, applied, then verified by a real sweep. If prediction and measurement
 disagree, it re-measures and re-solves. If another pass won't help, it stops and tells you what
 the physical limit is (usually sub placement).
 
@@ -139,6 +140,64 @@ depends on what's available:
 | `set_channel`, `solo`, `get_dsp_state` | direct miniDSP control |
 | `set_mic_calibration` | load the mic cal file into REW |
 | `reset_calibration` | start over (measurements kept) |
+| `dashboard_url` | where the live dashboard is running |
+
+Also an MCP prompt, `calibrate`, which walks the model through the loop with explicit pause points,
+and three resources: `rewdio://session/report`, `rewdio://session/config` and `rewdio://session/dsp`.
+
+### Live dashboard
+
+While the server runs, open **http://127.0.0.1:8765/**, or run `rewdio-dashboard` to view a session on its
+own. It shows:
+- the phase, and what Rewdio is waiting on you to do
+- bass deviation, crossover summation and prediction error
+- measured vs predicted vs target response at each seat
+- the miniDSP settings
+- quality and cross-check results, the solver's notes, and the log
+
+Styling comes entirely from design tokens in `src/rewdio/dashboard/tokens.json`, which are compiled to CSS
+custom properties for light and dark themes. Edit that file to restyle the dashboard; a test fails if
+`styles.css` contains a literal colour.
+
+### Safety and checks
+
+- **Before any sweep.** REW's SPL and clipping protection is set and read back. The timing reference and
+  mic cal are read back too. The mic input is checked for digital silence.
+- **After every sweep.** It checks SNR, clipping and low-frequency coverage, and looks for a silent channel
+  (amp off, cable out, wrong output). One repeat sweep checks repeatability. A critical finding stops the
+  run with a fix-it instruction; the sweep is never used.
+- **Cross-checks against REW itself.** Rewdio's PEQ is loaded into REW's EQ engine (miniDSP profile) and
+  REW's predicted response is compared with Rewdio's maths. With loopback timing, REW's alignment tool
+  gives a second opinion on sub delay. Disagreements are reported, never applied silently.
+- **Diagnostics in the report.** Residual peaks are matched to room modes. Narrow nulls get
+  boundary-cancellation (SBIR) hints with the implied distance. With several seats, seat-to-seat spread and
+  outlier seats are reported.
+
+### Configuration
+
+Every number lives in JSON; nothing is hard-coded in Python.
+
+1. `src/rewdio/defaults.json` ships every default: rig, sweep, convergence targets, and a `tuning`
+   section with every solver band, threshold, grid step and limit.
+2. Your file at `~/.rewdio/config.json` (or `$REWDIO_CONFIG`) overrides any subset. A typo in a key is
+   rejected, not ignored.
+3. The `configure` tool layers per-session changes on top, which are saved with the session.
+
+Example `~/.rewdio/config.json`:
+
+```json
+{
+  "crossover_hz": 90,
+  "mic_cal_path": "C:/cal/SoundID_1234567.txt",
+  "room_dims_m": [6.1, 4.2, 2.7],
+  "seat_xyz": {"MLP": [3.9, 2.1, 1.1]},
+  "target": {"house_curve_path": "C:/cal/my_house_curve.txt"},
+  "tuning": {"peq": {"max_cut_db": 9}}
+}
+```
+
+The simulator's room, speakers and DSP come from a scenario JSON
+(`src/rewdio/sim/scenarios/default.json`; point `sim_scenario` at your own).
 
 ### Things to know
 
@@ -149,6 +208,9 @@ depends on what's available:
   (48000 for SHD/2x4) and `dsp_max_delay_ms` for other units; PEQ coefficients depend on the rate.
 - If the subs can't reach the target with `max_sub_gain_db` of headroom, Rewdio cuts the mains
   instead and tells you to raise the master volume.
+- Long sweeps or DSD/upsampling DACs can eat the start of the sweep. Raise `sweep.start_delay_s`.
+- If PEQ cuts push the subs to `max_sub_gain_db`, Rewdio lowers the mains to keep headroom and tells you.
+  This can cost several dB of master volume. Raise `max_sub_gain_db` if your sub amps have headroom.
 - Session state lives in `~/.rewdio/<session>` (`REWDIO_HOME`, `REWDIO_SESSION`), so a run can
   resume after a restart.
 
@@ -161,7 +223,17 @@ uv run pytest -q
 
 The test suite runs full calibrations against the simulator, including the crawl, two-seat runs
 and loopback mode, plus a ground-truth check that the reciprocity ranking matches actually moving
-the subs. See [docs/PLAN.md](docs/PLAN.md) for the design.
+the subs. See [docs/PLAN.md](docs/PLAN.md) for the design and
+[docs/COMPARISON.md](docs/COMPARISON.md) for how Rewdio compares with every other REW MCP server.
+[docs/research/polycam.md](docs/research/polycam.md) evaluates importing a Polycam/RoomPlan room scan.
+
+Every module is kept under 500 lines, and a test enforces it.
+
+## Credits
+
+Rewdio adopts ideas and REW wire knowledge from brandon-fryslie/room-eq-wizard-mcp, koltyj/REW-mcp,
+daredoole/audio-calibration-mcp and KevinMeinon/rew-mcp-server, all MIT-licensed. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License
 
