@@ -244,6 +244,7 @@ class Tuning(_Strict):
 
 class DashboardSettings(_Strict):
     enabled: bool
+    allow_lan: bool = Field(description="Serve on the home network so a paired phone can drive the crawl")
     host: str
     port: int
     refresh_ms: int
@@ -276,6 +277,18 @@ class BalanceSettings(_Strict):
     gate_taper_ms: float
 
 
+class CrawlGrid(_Strict):
+    enabled: bool = Field(description="Lay candidate sub spots out as a lettered grid (A1, B3...) for the crawl")
+    origin_from_front_m: float = Field(description="A1 distance from the front wall (also the margin at the back wall)")
+    origin_from_left_m: float = Field(description="A1 distance from the left wall (also the margin at the right wall)")
+    spacing_m: float = Field(gt=0.1, description="Step between grid points")
+    mic_height_m: float = Field(description="Mic height for the crawl: where the sub's woofer will be")
+    mode: Literal["perimeter", "full"] = Field(description="perimeter: only cells near walls (where subs go)")
+    perimeter_depth_m: float = Field(description="In perimeter mode, how far from a wall a cell may be")
+    excluded: list[str] = Field(description="Cells a sub cannot go (furniture, doorways), e.g. ['C1', 'D1']")
+    max_cells: int = Field(ge=3, description="Safety cap on how many cells one crawl may visit")
+
+
 class SystemConfig(_Strict):
     rew_url: str
     minidsp_url: str = Field(description="minidsp-rs daemon: http://host:5380 or unix:///path/to/minidsp.sock")
@@ -292,6 +305,7 @@ class SystemConfig(_Strict):
     mic_positions: list[str] = Field(description="Seats to measure each pass; first is the main listening position")
     do_sub_crawl: bool
     crawl_positions: int = Field(ge=3, le=40)
+    crawl_grid: CrawlGrid
     room_dims_m: tuple[float, float, float] | None = Field(description="Length (x, front to back), width (y), height (z)")
     seat_xyz: dict[str, tuple[float, float, float]] = Field(description="Seat coordinates, origin front-left floor corner")
     mic_cal_path: str | None

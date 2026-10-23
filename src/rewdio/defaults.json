@@ -265,7 +265,8 @@
       500.0
     ],
     "chart_ppo": 24,
-    "chart_smoothing": 6
+    "chart_smoothing": 6,
+    "allow_lan": false
   },
   "balance": {
     "enabled": true,
@@ -298,5 +299,16 @@
     "min_gate_ms": 1.5,
     "reflection_threshold_db": -12.0,
     "resolution_cycles": 2.0
+  },
+  "crawl_grid": {
+    "enabled": true,
+    "origin_from_front_m": 0.35,
+    "origin_from_left_m": 0.35,
+    "spacing_m": 0.75,
+    "mic_height_m": 0.25,
+    "mode": "perimeter",
+    "perimeter_depth_m": 1.0,
+    "excluded": [],
+    "max_cells": 32
   }
 }

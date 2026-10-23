@@ -65,7 +65,7 @@ async def test_dashboard_serves_tokens_and_state(sim_runtime):
     from rewdio.dashboard.tokens import load_tokens, tokens_css
     rt = sim_runtime()
     await drive(rt)
-    client = TestClient(build_app(lambda: rt.session))
+    client = TestClient(build_app(lambda: rt))
     css = client.get("/static/tokens.css").text
     for name in load_tokens()["color"]["light"]:
         assert f"--color-{name}:" in css
@@ -75,7 +75,7 @@ async def test_dashboard_serves_tokens_and_state(sim_runtime):
     assert not re.search(r"#[0-9a-fA-F]{3,6}\b", styles), "styles.css must only use token variables"
     st = client.get("/api/state").json()
     assert st["done"] and st["curves"]["MLP"]["measured"] and set(st["dsp"]) == {"L", "R", "SUB1", "SUB2"}
-    assert client.get("/").status_code == 200
+    assert client.get("/").status_code == 200 and client.get("/classic").status_code == 200
 
 
 async def test_loopback_check_passes_when_wired_and_stops_when_unplugged(sim_runtime):

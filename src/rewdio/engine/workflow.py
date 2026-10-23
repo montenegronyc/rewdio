@@ -32,6 +32,8 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
         if key is not None and key != pa["key"]:
             return {"ok": False, "message": f"pending action is {pa['key']!r}, not {key!r}"}
         self.wf.crawl.setdefault("_confirmed", {})[pa["key"]] = {"xyz": xyz, "note": note}
+        if pa["key"] == "crawl:place_final":
+            self.wf.crawl["placed"] = pa.get("place")
         if pa.get("mic_to"):
             self.wf.mic_at = pa["mic_to"]
             if xyz is not None:

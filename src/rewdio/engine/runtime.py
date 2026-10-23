@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from ..minidsp.client import MiniDSPClient
@@ -18,6 +19,9 @@ class Runtime:
         self.simulate = (os.environ.get("REWDIO_SIMULATE", "") not in ("", "0", "false")) if simulate is None else simulate
         self.world = world
         self.fake_rew = self.fake_dsp = None
+        self.lock = asyncio.Lock()  # one driver at a time: Claude's tool calls and the phone share it
+        self._task: asyncio.Task | None = None
+        self.last_report: dict | None = None
         self._connect()
 
     def _connect(self) -> None:
@@ -41,6 +45,47 @@ class Runtime:
             self.dsp = MiniDSPClient(cfg.minidsp_url, cfg.minidsp_device_index)
         self.rig = Rig(self.session, self.rew, self.dsp)
         self.autopilot = Autopilot(self.rig)
+
+    @property
+    def busy(self) -> bool:
+        return self.lock.locked()
+
+    async def step(self, max_sweeps: int | None = None) -> dict:
+        async with self.lock:
+            rep = await self.autopilot.step(max_sweeps=max_sweeps)
+        self.last_report = rep
+        self.session.save()
+        return rep
+
+    def confirm(self, key: str | None, xyz: list[float] | None, note: str | None = None) -> dict:
+        pending = self.session.workflow.pending_action
+        if pending is None:
+            return {"ok": False, "message": "nothing is waiting on the user"}
+        sim = self.apply_sim_effects(pending, xyz)
+        res = self.autopilot.confirm(key, xyz, note)
+        if sim:
+            res["simulated_effects"] = sim
+        return res
+
+    def advance_in_background(self) -> bool:
+        """Kick the autopilot from the phone. False if a run is already going."""
+        if self.busy or (self._task is not None and not self._task.done()):
+            return False
+        self._task = asyncio.create_task(self.step())
+        return True
+
+    def set_cell(self, code: str, enabled: bool) -> dict:
+        crawl = self.session.workflow.crawl
+        if code in crawl.get("measured", {}):
+            return {"ok": False, "message": f"{code} is already measured"}
+        ex = set(crawl.get("excluded", []))
+        ex.discard(code) if enabled else ex.add(code)
+        crawl["excluded"] = sorted(ex)
+        pa = self.session.workflow.pending_action or {}
+        if not enabled and pa.get("cell") == code:  # skipping the cell we are waiting on
+            self.session.workflow.pending_action = None
+        self.session.save()
+        return {"ok": True, "excluded": crawl["excluded"]}
 
     async def reconnect(self) -> None:
         await self.aclose()

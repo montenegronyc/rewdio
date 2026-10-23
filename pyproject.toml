@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.6",
     "starlette>=0.37",
     "uvicorn>=0.29",
+    "segno>=1.6",
 ]
 
 [project.optional-dependencies]

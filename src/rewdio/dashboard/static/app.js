@@ -81,7 +81,7 @@ function render(s) {
 
 async function refresh() {
   let wait = 1500;
-  try { wait = render(await (await fetch("/api/state")).json()); } catch (e) { $("status").textContent = "disconnected"; }
+  try { wait = render(await (await fetch("/api/classic-state")).json()); } catch (e) { $("status").textContent = "disconnected"; }
   return wait;
 }
 (async function loop() { const w = await refresh(); setTimeout(loop, w || 1500); })();

@@ -69,7 +69,10 @@ class Session:
         tmp.write_text(json.dumps(obj, indent=1))
         tmp.replace(self.dir / name)
 
+    version: int = 0  # bumped on every save; the live GUI watches it
+
     def save(self) -> None:
+        self.version += 1
         self._write("config.json", self.config.model_dump(mode="json"))
         self._write("dsp.json", self.dsp.model_dump(mode="json"))
         self._write("workflow.json", self.workflow.model_dump(mode="json"))

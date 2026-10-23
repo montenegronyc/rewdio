@@ -45,7 +45,7 @@ async def lifespan(_server):
     if not d.enabled:
         yield {}
         return
-    async with serve_in_background(lambda: runtime().session, d.host, d.port) as url:
+    async with serve_in_background(runtime, "0.0.0.0" if d.allow_lan else d.host, d.port) as url:
         _dashboard_url = url
         yield {}
 
@@ -101,7 +101,10 @@ async def dashboard_url() -> dict:
     d = runtime().session.config.dashboard
     if not d.enabled:
         return {"enabled": False, "hint": "configure {'dashboard': {'enabled': true}} and restart the server"}
-    return {"enabled": True, "url": _dashboard_url or f"http://{d.host}:{d.port}/ (port was busy; run rewdio-dashboard)"}
+    from .dashboard.remote import pairing_url
+    return {"enabled": True, "url": _dashboard_url or f"http://{d.host}:{d.port}/ (port was busy; run rewdio-dashboard)",
+            "phone_pairing_url": pairing_url(runtime()) if d.allow_lan else None,
+            "phone_hint": None if d.allow_lan else "set dashboard.allow_lan to true to drive the crawl from a phone"}
 
 
 @mcp.tool()
@@ -128,7 +131,7 @@ async def autopilot_step(max_sweeps: int | None = None) -> dict:
     Returns status: `user_action_required` (relay action.instructions, then confirm_user_action),
     `paused` (sweep budget spent; call again), or `done` (call get_report).
     """
-    rep = await runtime().autopilot.step(max_sweeps=max_sweeps)
+    rep = await runtime().step(max_sweeps=max_sweeps)
     return _clean(rep)
 
 
@@ -136,16 +139,8 @@ async def autopilot_step(max_sweeps: int | None = None) -> dict:
 async def confirm_user_action(key: str | None = None, x: float | None = None, y: float | None = None,
                               z: float | None = None, note: str | None = None) -> dict:
     """Tell the autopilot the user finished the pending physical task. Pass x/y/z (metres) if known."""
-    rt = runtime()
-    pending = rt.session.workflow.pending_action
     xyz = [x, y, z] if None not in (x, y, z) else None
-    if pending is None:
-        return {"ok": False, "message": "nothing is waiting on the user"}
-    sim = rt.apply_sim_effects(pending, xyz)
-    res = rt.autopilot.confirm(key, xyz, note)
-    if sim:
-        res["simulated_effects"] = sim
-    return _clean(res)
+    return _clean(runtime().confirm(key, xyz, note))
 
 
 @mcp.tool()
