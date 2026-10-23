@@ -183,10 +183,42 @@ depends on what's available:
 Also an MCP prompt, `calibrate`, which walks the model through the loop with explicit pause points,
 and three resources: `rewdio://session/report`, `rewdio://session/config` and `rewdio://session/dsp`.
 
+### Phone remote and the crawl grid
+
+For the sub crawl you're down on the floor with a mic, so the crawl runs from your phone.
+
+```json
+{ "do_sub_crawl": true, "room_dims_m": [5.8, 4.3, 2.6], "dashboard": { "allow_lan": true } }
+```
+
+1. Start Rewdio. Open **http://127.0.0.1:8765/** on the computer, go to **Status** and scan the pairing QR
+   code with your phone. Add the page to your home screen: it runs full-screen and keeps the screen on.
+2. **Mark A1** with a tape measure: 35 cm out from the front wall and 35 cm out from the left wall. Rows
+   are letters going back into the room; columns are numbers going right. Every step is 75 cm, and the
+   last row and column sit 35 cm from the back and right walls, so every corner is a spot.
+3. The phone shows the next spot in huge letters (**C5**, with its distances from the walls). That spot
+   pulses on the room plan. Put the mic there and tap **Mic is here**. Rewdio runs the sweep and the
+   spot turns green, amber or red: how good one sub there would be at your seat.
+4. Tap any spot a sub can't go (sofa, doorway) to skip it.
+5. At the end, the phone shows where to put the subs (**SUB1 → A3, SUB2 → H5**) with a line between them.
+
+By default only the outer ring of the grid is visited (`crawl_grid.mode: "perimeter"`), because subs live
+near walls. The route snakes so you walk the shortest path. Spacing, the A1 offsets, mic height and
+skipped cells are under `crawl_grid` in the config.
+
+**Pairing and safety.** These pages make your speakers play:
+- Only the computer running Rewdio and devices paired by QR code can act on them.
+- Network access is off until you set `dashboard.allow_lan`.
+- One driver at a time: if Claude and the phone both try to advance the run, they take turns.
+
+`rewdio-dashboard` runs the same GUI on its own, so the phone can drive a whole calibration without Claude.
+The front end is React + TypeScript in `web/`. It's built into the package, so you don't need Node to run
+Rewdio; run `cd web && npm install && npm run build` only if you change it.
+
 ### Live dashboard
 
-While the server runs, open **http://127.0.0.1:8765/**, or run `rewdio-dashboard` to view a session on its
-own. It shows:
+The classic status page is at **http://127.0.0.1:8765/classic** (the phone app's Status tab links to it).
+It shows:
 - the phase, and what Rewdio is waiting on you to do
 - bass deviation, crossover summation and prediction error
 - measured vs predicted vs target response at each seat

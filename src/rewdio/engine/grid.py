@@ -23,14 +23,17 @@ def build_grid(dims: tuple[float, float, float], g: CrawlGrid, extra_excluded: s
     L, W, _ = dims
     excluded = set(g.excluded) | (extra_excluded or set())
     eps = 1e-6
-    xs, x = [], g.origin_from_front_m
-    while x <= L - g.origin_from_front_m + eps:
-        xs.append(round(x, 3))
-        x += g.spacing_m
-    ys, y = [], g.origin_from_left_m
-    while y <= W - g.origin_from_left_m + eps:
-        ys.append(round(y, 3))
-        y += g.spacing_m
+    def axis(start: float, end: float) -> list[float]:
+        vals, v = [], start
+        while v <= end + eps:
+            vals.append(round(v, 3))
+            v += g.spacing_m
+        if end - vals[-1] > 0.1:  # always reach the far wall: its corners are prime sub spots
+            vals.append(round(end, 3))
+        return vals
+
+    xs = axis(g.origin_from_front_m, L - g.origin_from_front_m)
+    ys = axis(g.origin_from_left_m, W - g.origin_from_left_m)
     cells = []
     for i, x in enumerate(xs):
         for j, y in enumerate(ys):
@@ -55,15 +58,23 @@ def route(cells: list[dict], max_cells: int) -> list[dict]:
     out = []
     for k, i in enumerate(sorted(rows)):
         out += sorted(rows[i], key=lambda c: c["col"], reverse=bool(k % 2))
-    if len(out) > max_cells:  # thin evenly across the room rather than dropping the back rows
-        step = len(out) / max_cells
-        out = [out[int(k * step)] for k in range(max_cells)]
+    if len(out) > max_cells:  # thin evenly across the room, but never drop a corner: prime sub spots
+        rmin, rmax = min(c["row"] for c in out), max(c["row"] for c in out)
+        cmin, cmax = min(c["col"] for c in out), max(c["col"] for c in out)
+        corner = {(r, c) for r in (rmin, rmax) for c in (cmin, cmax)}
+        keep = {i for i, c in enumerate(out) if (c["row"], c["col"]) in corner}
+        rest = [i for i in range(len(out)) if i not in keep]
+        n = max(0, max_cells - len(keep))
+        step = len(rest) / n if n else 0
+        keep |= {rest[int(k * step)] for k in range(n)}
+        out = [c for i, c in enumerate(out) if i in keep]
     return out
 
 
 def setup_instructions(g: CrawlGrid, n_cells: int) -> str:
     return (f"Set up the crawl grid. Mark A1 on the floor: {g.origin_from_front_m * 100:.0f} cm out from the FRONT "
             f"wall and {g.origin_from_left_m * 100:.0f} cm out from the LEFT wall. Rows are letters going back into "
-            f"the room, columns are numbers going right; every step is {g.spacing_m * 100:.0f} cm. "
+            f"the room, columns are numbers going right; every step is {g.spacing_m * 100:.0f} cm, except the last "
+            f"row and column, which sit the same distance from the back and right walls. "
             f"{n_cells} spots to visit. Tap any cell where a sub can't go (sofa, doorway) to skip it. "
             f"Confirm when A1 is marked.")

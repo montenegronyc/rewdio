@@ -307,7 +307,7 @@
     "spacing_m": 0.75,
     "mic_height_m": 0.25,
     "mode": "perimeter",
-    "perimeter_depth_m": 1.0,
+    "perimeter_depth_m": 0.6,
     "excluded": [],
     "max_cells": 32
   }

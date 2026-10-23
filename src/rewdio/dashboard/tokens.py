@@ -17,7 +17,7 @@ def _vars(prefix: str, d: dict) -> list[str]:
 def tokens_css(tokens: dict | None = None) -> str:
     t = tokens or load_tokens()
     shared = []
-    for group in ("space", "radius", "font", "chart"):
+    for group in ("space", "radius", "font", "chart", "motion", "layout"):
         shared += _vars(group, t[group])
     light = _vars("color", t["color"]["light"])
     dark = _vars("color", t["color"]["dark"])

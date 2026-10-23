@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from importlib import resources
 from typing import Callable
 
@@ -14,6 +15,7 @@ from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
+from .remote import LOCAL, token_for
 from .remote import routes as remote_routes
 from .state import snapshot
 from .tokens import tokens_css
@@ -28,9 +30,15 @@ def _static(path: str) -> bytes | None:
 
 
 def build_app(runtime: Callable) -> Starlette:
-    async def index(_):
+    async def index(request):
         html = _static("app/index.html")
-        return HTMLResponse(html or _static("index.html"))  # classic page if the app isn't built
+        if html is None:
+            return HTMLResponse(_static("index.html"))  # classic page if the app isn't built
+        if (request.client.host if request.client else "") in LOCAL:
+            # this computer is trusted: hand its page the token so its buttons work without pairing
+            tag = f'<script>window.__rewdioToken={json.dumps(token_for(runtime()))}</script>'
+            html = html.replace(b"</head>", tag.encode() + b"</head>", 1)
+        return HTMLResponse(html)
 
     async def classic(_):
         return HTMLResponse(_static("index.html"))

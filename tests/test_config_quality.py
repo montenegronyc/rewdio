@@ -23,8 +23,18 @@ def test_user_file_overrides_defaults_and_typos_fail(tmp_path):
 
 
 def test_every_module_stays_under_500_lines():
-    big = {str(p.relative_to(SRC)): n for p in SRC.rglob("*.py") if (n := len(p.read_text().splitlines())) >= 500}
+    web = SRC.parents[1] / "web" / "src"
+    files = list(SRC.rglob("*.py")) + list(web.glob("*.ts*")) + list(web.glob("*.css"))
+    big = {str(p): n for p in files if (n := len(p.read_text().splitlines())) >= 500}
     assert not big, big
+
+
+def test_phone_app_is_built_and_uses_only_tokens():
+    import re
+    app = SRC / "dashboard" / "static" / "app"
+    assert (app / "index.html").exists(), "run `npm run build` in web/"
+    css = (SRC.parents[1] / "web" / "src" / "styles.css").read_text()
+    assert not re.search(r"#[0-9a-fA-F]{3,6}\b|rgb\(", css), "web styles must only use token variables"
 
 
 async def test_dead_channel_is_caught_before_solving(sim_runtime):
