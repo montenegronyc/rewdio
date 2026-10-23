@@ -435,4 +435,5 @@ daredoole/audio-calibration-mcp and KevinMeinon/rew-mcp-server, all MIT-licensed
 
 ## License
 
-MIT
+Copyright © 2026 Number Fortyeight Inc. All rights reserved. See [LICENSE](LICENSE).
+Third-party components keep their own licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
