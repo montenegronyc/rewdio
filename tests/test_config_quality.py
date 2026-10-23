@@ -15,7 +15,8 @@ def test_user_file_overrides_defaults_and_typos_fail(tmp_path):
     f.write_text(json.dumps({"crossover_hz": 90, "tuning": {"peq": {"max_cut_db": 9}}}))
     cfg = load_config(user_file=f)
     assert cfg.crossover_hz == 90 and cfg.tuning.peq.max_cut_db == 9
-    assert cfg.tuning.peq.max_q == 12.0  # untouched keys keep their defaults
+    from rewdio.config import default_dict
+    assert cfg.tuning.peq.max_q == default_dict()["tuning"]["peq"]["max_q"]  # untouched keys keep their defaults
     f.write_text(json.dumps({"crossovr_hz": 90}))
     with pytest.raises(ValidationError):
         load_config(user_file=f)

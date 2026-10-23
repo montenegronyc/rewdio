@@ -127,6 +127,7 @@ class AlignmentTuning(_Strict):
     arrival_f_hi_hz: float
     arrival_onset_fraction: float
     arrival_hp_hz: float
+    polarity_min_gain_db: float = Field(description="Flip sub polarity only if crossover summation improves this much")
 
 
 class PairTuning(_Strict):
@@ -140,6 +141,7 @@ class PairTuning(_Strict):
     fine_gain_step_db: float
     delay_tie_penalty_per_ms: float
     gain_tie_penalty_per_db: float
+    invert_penalty: float = Field(description="Score cost of inverting a sub, so polarity only flips when it pays")
 
 
 class PeqTuning(_Strict):
@@ -154,6 +156,17 @@ class PeqTuning(_Strict):
     min_improvement_db: float
     stop_error_db: float
     max_nfev: int
+    max_filters: int = Field(description="Hard cap on sub PEQ filters, whatever slots are free")
+    gain_penalty: float = Field(description="Ridge penalty per dB of filter gain: prefer the smallest filters that work")
+    min_total_improvement_db: float = Field(description="PEQ earns its place if it cuts peak excess by this much...")
+    min_peak_reduction_db: float = Field(description="...or if it knocks the worst peak down by this much")
+    only_after_verified_pass: bool = Field(description="Never PEQ before a verified gain/delay/polarity-only pass")
+
+
+class RestraintTuning(_Strict):
+    gain_deadband_db: float = Field(description="Smaller gain changes than this are not written")
+    delay_deadband_ms: float = Field(description="Smaller delay changes than this are not written")
+    balance_trim_deadband_db: float = Field(description="L/R broadband differences below this are left alone")
 
 
 class GainStaging(_Strict):
@@ -226,6 +239,7 @@ class Tuning(_Strict):
     diagnostics: DiagnosticsTuning
     preflight: PreflightTuning
     crosscheck: CrosscheckTuning
+    restraint: RestraintTuning
 
 
 class DashboardSettings(_Strict):

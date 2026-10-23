@@ -125,8 +125,9 @@ class _Solve:
         band_hz = balance_band(self.cfg, gate)
         res = solve_balance(left, right, self.fs, bs, band_hz)
         base = self.cfg.baseline.gain_db
-        self.st.get(left_role).gain_db = round(base - max(-res.broadband_db, 0.0), 2)
-        self.st.get(right_role).gain_db = round(base - max(res.broadband_db, 0.0), 2)
+        trim = res.broadband_db if abs(res.broadband_db) >= self.t.restraint.balance_trim_deadband_db else 0.0
+        self.st.get(left_role).gain_db = round(base - max(-trim, 0.0), 2)
+        self.st.get(right_role).gain_db = round(base - max(trim, 0.0), 2)
         for role, side in ((left_role, "L"), (right_role, "R")):
             self.st.get(role).peq = dict(zip(bs.peq_slots, res.peq(side)))
         louder = right_role if res.broadband_db > 0 else left_role
@@ -225,8 +226,23 @@ class _Solve:
         for r in self.subs:
             self.st.get(r).peq = {slot: f for slot, f in zip(self.cfg.peq_slots, res.filters)}
         held = f", held-out seats {res.held_out_gain_db:+.2f} dB" if res.held_out_gain_db is not None else ""
-        self.notes.append(f"sub PEQ: {len(res.filters)} filters, bass std {res.before_std_db} -> {res.after_std_db} dB{held}: "
+        self.notes.append(f"sub PEQ: {len(res.filters)} filters, EQ objective {res.before_std_db} -> {res.after_std_db} dB{held}: "
                           + "; ".join(f"{f.freq_hz:.0f} Hz {f.gain_db:+.1f} dB Q{f.q}" for f in res.filters))
+
+    def deadband(self, current: DspState) -> None:
+        """Don't touch the DSP for changes too small to matter."""
+        rt = self.t.restraint
+        kept = []
+        for c in self.cfg.channels:
+            new, cur = self.st.get(c.role), current.get(c.role)
+            if new.gain_db != cur.gain_db and abs(new.gain_db - cur.gain_db) < rt.gain_deadband_db:
+                new.gain_db = cur.gain_db
+                kept.append(f"{c.role} gain")
+            if new.delay_ms != cur.delay_ms and abs(new.delay_ms - cur.delay_ms) < rt.delay_deadband_ms:
+                new.delay_ms = cur.delay_ms
+                kept.append(f"{c.role} delay")
+        if kept:
+            self.notes.append("left unchanged (difference below deadband): " + ", ".join(kept))
 
     def normalize_delays(self) -> None:
         roles = [c.role for c in self.cfg.channels]
@@ -266,6 +282,7 @@ def solve(cfg: SystemConfig, data: Data, current: DspState, use_peq: bool = Fals
             best = (score, DspState.model_validate(s.st.model_dump()), list(s.notes))
     s.st, s.notes = best[1], best[2]
     s.normalize_delays()
+    s.deadband(current)
     predicted = {p: system_response(data, s.st, p, s.fs) for p in s.positions}
     return Proposal(state=s.st, predicted=predicted, metrics=evaluate(cfg, data, s.st, predicted), notes=s.notes)
 
@@ -314,3 +331,36 @@ def converged(cfg: SystemConfig, metrics: dict) -> tuple[bool, list[str]]:
     if metrics["bass_deviation"]["std_db"] > c.max_bass_deviation_db:
         fails.append(f"bass deviation std {metrics['bass_deviation']['std_db']} dB > {c.max_bass_deviation_db}")
     return (not fails), fails
+
+
+def footprint(cfg: SystemConfig, st: DspState) -> dict:
+    """How much DSP the solution uses, so 'light' is visible."""
+    filters = [(c.role, p) for c in cfg.channels for p in st.get(c.role).peq.values()]
+    return {"filters": len(filters), "total_abs_eq_db": round(sum(abs(p.gain_db) for _, p in filters), 1),
+            "max_cut_db": round(min([p.gain_db for _, p in filters] or [0.0]), 1),
+            "max_boost_db": round(max([p.gain_db for _, p in filters] or [0.0]), 1),
+            "inverted": [c.role for c in cfg.channels if st.get(c.role).invert],
+            "gain_range_db": [round(min(st.get(c.role).gain_db for c in cfg.channels), 2),
+                              round(max(st.get(c.role).gain_db for c in cfg.channels), 2)]}
+
+
+def peq_band_worst_peak(cfg: SystemConfig, predicted: dict[str, Response]) -> float:
+    """Worst peak above target within the band sub PEQ can act on (spatial average)."""
+    b = cfg.tuning.bands
+    resp = list(predicted.values())
+    f = resp[0].freqs
+    hi = min(cfg.crossover_hz * b.peq_xo_factor, b.peq_max_hz)
+    return deviation(f, spatial_average_db(resp), target_db(f, cfg.target), b.peq_lo_hz, hi, b.bass_smoothing)["max_db"]
+
+
+def peq_earns_place(cfg: SystemConfig, without: Proposal, with_peq: Proposal) -> tuple[bool, str]:
+    """PEQ is the last rung. It is used only if it clearly fixes peaks (the only thing cuts can fix)
+    and never makes the overall response worse."""
+    pq = cfg.tuning.peq
+    a, b = without.metrics["bass_deviation"], with_peq.metrics["bass_deviation"]
+    excess = a["peak_excess_db"] - b["peak_excess_db"]
+    worst = peq_band_worst_peak(cfg, without.predicted) - peq_band_worst_peak(cfg, with_peq.predicted)
+    ok = (excess >= pq.min_total_improvement_db or worst >= pq.min_peak_reduction_db) and b["std_db"] <= a["std_db"]
+    detail = (f"worst peak in its band {worst:.1f} dB lower (bar {pq.min_peak_reduction_db}), peak excess "
+              f"{excess:.2f} dB lower (bar {pq.min_total_improvement_db}), bass std {a['std_db']} -> {b['std_db']} dB")
+    return ok, ("PEQ earned its place: " if ok else "PEQ considered and rejected: ") + detail

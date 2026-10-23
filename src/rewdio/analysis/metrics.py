@@ -19,10 +19,13 @@ def deviation(freqs: np.ndarray, mag_db: np.ndarray, target_db: np.ndarray, lo: 
     m = band(freqs, lo, hi)
     s = smooth_db(freqs, mag_db, smoothing)
     err = s[m] - target_db[m]
+    rel = err - np.median(err)  # median: nulls and peaks don't drag the reference
     err = err - np.mean(err)
     return {"band_hz": [lo, hi], "std_db": round(float(np.std(err)), 2),
             "max_db": round(float(np.max(err)), 2), "min_db": round(float(np.min(err)), 2),
-            "peak_to_peak_db": round(float(np.ptp(err)), 2)}
+            "peak_to_peak_db": round(float(np.ptp(err)), 2),
+            # what cut-only EQ can address: RMS of the excess above target
+            "peak_excess_db": round(float(np.sqrt(np.mean(np.maximum(rel, 0.0) ** 2))), 2)}
 
 
 def extrema(freqs: np.ndarray, mag_db: np.ndarray, lo: float, hi: float, *, smoothing: float = 12,

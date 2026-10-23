@@ -18,8 +18,10 @@ targets are met. You only get asked to do physical things: move the mic, move a 
 4. **Reverse-calculates dual-sub placement.** By acoustic reciprocity, putting the sub at the seat
    and moving the mic through candidate sub spots gives the same responses as moving the sub.
    Rewdio then ranks every pair of spots as a coherent sum with its best delay/gain/polarity.
-5. **PEQ as a last resort.** Only when alignment alone misses the target. Cut-biased, boosts capped
-   at +3 dB, and seat-dependent nulls are left alone.
+5. **PEQ as a last resort, and light.** It is never used on the first pass: Rewdio first applies and
+   verifies what gain, delay and polarity alone achieve. Only if that verified result misses the target
+   is PEQ considered. It is cut-only, at most −6 dB and 3 filters, and has to earn its place. See
+   "Restraint".
 
 Every sweep passes a quality gate (SNR, clipping, dead channel, repeatability) before it can feed the
 solver. Every change is predicted, applied, then verified by a real sweep. If prediction and measurement
@@ -195,6 +197,29 @@ Styling comes entirely from design tokens in `src/rewdio/dashboard/tokens.json`,
 custom properties for light and dark themes. Edit that file to restyle the dashboard; a test fails if
 `styles.css` contains a literal colour.
 
+### Restraint: as little DSP as possible
+
+The solver works up a ladder and stops at the first rung that is good enough:
+
+1. **Physical fixes** (sub placement via the crawl, mic positions). Diagnostics point here when the
+   limit is the room.
+2. **Gain, delay, polarity.** No tonal change. Changes smaller than 0.25 dB or 0.05 ms are not
+   written at all, and a sub's polarity only flips when that clearly sums better than a delay.
+3. **PEQ, as a last resort.** It is unlocked only after a verified pass without PEQ misses the target.
+   It is then re-solved from the same, already-validated sweeps. PEQ is:
+   - **cut-only** by default (`max_peq_boost_db: 0`), at most **−6 dB**, at most **3 filters**
+   - fitted with a penalty on gain, so of two equally good fits the lighter one wins
+   - judged only on peaks above target, because cuts cannot fill nulls and so nulls never count
+     against or for a filter
+   - kept per filter only if that filter improves things by at least 0.5 dB
+   - **used at all only if it earns its place:** it must knock the worst peak in its band down by at
+     least 3 dB, or lower the total peak excess by at least 1 dB, and never make the overall bass
+     deviation worse. Otherwise it is rejected, and the log says by how much it fell short.
+
+Every report includes a **DSP footprint**: filter count, total EQ in dB, the deepest cut, the largest
+boost, inverted channels and the gain range. All thresholds live under `tuning.peq`,
+`tuning.restraint` and `balance` in the config.
+
 ### Left/right balance (centre image)
 
 Rewdio matches L and R, not just their overall level:
@@ -204,7 +229,7 @@ Rewdio matches L and R, not just their overall level:
   seat are dominated by reflection combs.
 - Both channels use the same gate length, so neither side's level is biased.
 - The louder side gets a broadband trim. What remains is fixed with up to 3 broad, low-Q filters split
-  half and half (+g/2 on one side, −g/2 on the other), capped at 1.5 dB per side. The centre moves;
+  half and half (+g/2 on one side, −g/2 on the other), capped at 1.0 dB per side. The centre moves;
   the overall tone doesn't.
 - It only judges what the gate can resolve. With a reflection 2.5 ms after the direct sound, that's
   above about 800 Hz. More mic positions around the seat average out reflection combs.

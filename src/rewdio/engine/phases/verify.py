@@ -7,7 +7,7 @@ import numpy as np
 from ...analysis.diagnostics import diagnose
 from ...analysis.metrics import deviation, summarize
 from ...analysis.response import Response, smooth_db, spatial_average_db
-from ...analysis.solver import converged, solve
+from ...analysis.solver import converged, footprint, peq_earns_place, solve
 from ...analysis.target import target_db
 from ...minidsp.state import DspState
 from ...rew.client import RewError
@@ -25,18 +25,28 @@ def state_summary(cfg, st: DspState) -> dict:
 
 
 class SolveVerifyPhase(PhaseBase):
+    def _data_pass(self) -> int:
+        """The pass whose baseline sweeps the current solution was solved from."""
+        return self.wf.crawl.get("data_pass", self.wf.pass_no)
+
     async def _phase_solve(self, log) -> str:
-        data, warnings = self.timeline()
+        data, warnings = self.timeline(self._data_pass())
         log.extend(warnings)
         prop = solve(self.cfg, data, self.s.dsp, use_peq=False)
         ok, fails = converged(self.cfg, prop.metrics)
         used_peq = False
-        if not ok and self.cfg.allow_peq and self.cfg.subs:
+        pq = self.cfg.tuning.peq
+        # PEQ is the last rung: only after a verified gain/delay/polarity-only pass still missed the target
+        unlocked = self.wf.crawl.get("peq_unlocked", False) or not pq.only_after_verified_pass
+        if not ok and self.cfg.allow_peq and self.cfg.subs and unlocked:
             with_peq = solve(self.cfg, data, self.s.dsp, use_peq=True)
-            gain = self.cfg.tuning.peq.min_improvement_db
-            if with_peq.metrics["bass_deviation"]["std_db"] < prop.metrics["bass_deviation"]["std_db"] - gain:
+            earns, why = peq_earns_place(self.cfg, prop, with_peq)
+            log.append(why)
+            if earns:
                 prop, used_peq = with_peq, True
                 ok, fails = converged(self.cfg, prop.metrics)
+        elif not ok and self.cfg.allow_peq and self.cfg.subs:
+            log.append("PEQ held back: first verifying what gain, delay and polarity alone achieve")
         crosscheck = await self._crosscheck(prop) if self.cfg.tuning.crosscheck.enabled else {}
         await self.rig.apply(prop.state)
         log.extend(prop.notes)
@@ -44,6 +54,7 @@ class SolveVerifyPhase(PhaseBase):
         self.wf.last_proposal = {"pass": self.wf.pass_no, "state": state_summary(self.cfg, prop.state),
                                  "predicted": prop.metrics, "predicted_ok": ok, "predicted_fails": fails,
                                  "used_peq": used_peq, "notes": prop.notes, "crosscheck": crosscheck,
+                                 "dsp_footprint": footprint(self.cfg, prop.state),
                                  "_pred": {p: r.to_dict() for p, r in prop.predicted.items()}}
         return "VERIFY"
 
@@ -52,7 +63,7 @@ class SolveVerifyPhase(PhaseBase):
         cc = self.cfg.tuning.crosscheck
         out: dict = {}
         pos = self.cfg.mic_positions[0]
-        solos = {m.roles[0]: m for m in self.s.find(kind="solo", position=pos, pass_no=self.wf.pass_no)}
+        solos = {m.roles[0]: m for m in self.s.find(kind="solo", position=pos, pass_no=self._data_pass())}
         mains, subs = [c.role for c in self.cfg.mains], [c.role for c in self.cfg.subs]
         if self.cfg.timing_mode.value != "sum_fit" and mains and subs:
             try:  # REW's alignment tool only means something when the measurements share a time base
@@ -115,7 +126,7 @@ class SolveVerifyPhase(PhaseBase):
                   measured_summary={p: summarize(measured[p], self.cfg) for p in positions})
         mains_solo = {}
         for c in self.cfg.mains:
-            recs = self.s.find(kind="solo", position=positions[0], pass_no=self.wf.pass_no, roles=[c.role])
+            recs = self.s.find(kind="solo", position=positions[0], pass_no=self._data_pass(), roles=[c.role])
             if recs:
                 mains_solo[c.role] = self.s.response(recs[-1].id)
         lp["diagnostics"] = diagnose(self.cfg, measured, mains_solo)
@@ -143,5 +154,16 @@ class SolveVerifyPhase(PhaseBase):
                 log.append(f"iteration limit reached; kept the best pass ({self.wf.best['pass']}): " + "; ".join(fails))
             return "DONE"
         self.wf.pass_no += 1
+        pq = self.cfg.tuning.peq
+        if (pq.only_after_verified_pass and self.cfg.allow_peq and not self.wf.crawl.get("peq_unlocked")
+                and metrics["prediction_error_db"] <= conv.max_prediction_error_db):
+            # the model is proven on this data: unlock PEQ and re-solve from it, no need to re-measure
+            self.wf.crawl["peq_unlocked"] = True
+            self.wf.crawl["data_pass"] = lp["pass"] if self.wf.crawl.get("data_pass") is None else self.wf.crawl["data_pass"]
+            log.append("not converged (" + "; ".join(fails) + "); gain/delay/polarity alone are exhausted, "
+                       "so PEQ is now allowed as a last resort")
+            return "SOLVE"
+        self.wf.crawl["peq_unlocked"] = self.wf.crawl.get("peq_unlocked", False)
+        self.wf.crawl.pop("data_pass", None)
         log.append("not converged (" + "; ".join(fails) + "); re-measuring under the new settings")
         return "BASELINE"

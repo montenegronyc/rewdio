@@ -109,7 +109,7 @@ def best_alignment(a_list: list[Response], b_list: list[Response], lo: float, hi
         i = near[np.argmin(np.abs(delays[near]))]
         cand = Alignment(float(delays[i]), inv, float(score[i]))
         # a polarity flip has to be clearly better, not a tie
-        if best is None or cand.efficiency_db > best.efficiency_db + at.tie_tolerance_db:
+        if best is None or cand.efficiency_db > best.efficiency_db + at.polarity_min_gain_db:
             best = cand
     assert best is not None
     return best
@@ -187,7 +187,8 @@ def _best_of(evaluate, pt: PairTuning, D, G, I, prefer=None, chunk: int = 512):
     for s in range(0, D.size, chunk):
         sc, st, sp = evaluate(D[s:s + chunk], G[s:s + chunk], I[s:s + chunk])
         # prefer small delays and gains among near-ties
-        tie = sc + pt.delay_tie_penalty_per_ms * np.abs(D[s:s + chunk]) + pt.gain_tie_penalty_per_db * np.abs(G[s:s + chunk])
+        tie = (sc + pt.delay_tie_penalty_per_ms * np.abs(D[s:s + chunk]) + pt.gain_tie_penalty_per_db * np.abs(G[s:s + chunk])
+               + pt.invert_penalty * I[s:s + chunk])
         k = int(np.argmin(tie))
         cand = (D[s + k], G[s + k], I[s + k], sc[k], st[k], sp[k], tie[k])
         if out is None or cand[6] < out[6]:
