@@ -149,6 +149,19 @@ def routes(runtime: Callable) -> list[Route]:
         from ..engine import setup
         return JSONResponse(await setup.check(runtime(), (await req.json()).get("checks", [])))
 
+    async def waterfall(req):
+        if not (is_local(req) or authed(req)):
+            return deny()
+        from ..analysis.waterfall import csd
+        s = runtime().session
+        seat = req.query_params.get("seat") or s.config.mic_positions[0]
+        for m in sorted(s.find(kind="system", position=seat) + s.find(kind="listening", position=seat),
+                        key=lambda m: m.created, reverse=True):
+            stored = s.ir(m.id)
+            if stored:
+                return JSONResponse({"seat": seat, "measurement": m.id, **csd(stored, s.config.dashboard.waterfall)})
+        return JSONResponse({"seat": seat, "measurement": None})
+
     async def setups_get(req):
         if not (is_local(req) or authed(req)):
             return deny()
@@ -181,7 +194,7 @@ def routes(runtime: Callable) -> list[Route]:
         rt.session.version += 1  # nudge live views
         return JSONResponse(json.loads(json.dumps(res, default=str)), status_code=200 if res.get("ok") else 400)
 
-    return [Route("/api/setups", setups_get), Route("/api/setups", setups_post, methods=["POST"]),
+    return [Route("/api/waterfall", waterfall), Route("/api/setups", setups_get), Route("/api/setups", setups_post, methods=["POST"]),
             Route("/api/setup", setup_get), Route("/api/setup", setup_save, methods=["POST"]),
             Route("/api/setup/check", setup_check, methods=["POST"]),
             Route("/api/state", state), Route("/api/events", events), Route("/api/confirm", confirm, methods=["POST"]),

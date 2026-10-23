@@ -88,3 +88,10 @@ export async function getSetups(): Promise<DspSetup[]> {
 }
 export const setupOp = (op: "save" | "recall" | "delete" | "rename", body: Record<string, string>) =>
   post("/api/setups", { op, ...body });
+
+export type WaterfallData = { seat: string; measurement: string | null; freqs: number[]; times_ms: number[]; db: number[][]; floor_db: number };
+export async function getWaterfall(seat: string): Promise<WaterfallData> {
+  const r = await fetch(`/api/waterfall?seat=${encodeURIComponent(seat)}`, { headers: headers() });
+  if (r.status === 401) throw new Unpaired();
+  return r.json();
+}

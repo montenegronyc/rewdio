@@ -242,6 +242,18 @@ class Tuning(_Strict):
     restraint: RestraintTuning
 
 
+class WaterfallSettings(_Strict):
+    hz: tuple[float, float] = Field(description="Frequency span of the waterfall (cumulative spectral decay)")
+    ppo: int = Field(ge=1, description="Points per octave")
+    smoothing: float = Field(description="Fractional-octave smoothing of each slice")
+    window_ms: float = Field(gt=0, description="Length of each analysis window")
+    step_ms: float = Field(gt=0, description="Time between slices")
+    slices: int = Field(ge=2, le=80)
+    floor_db: float = Field(lt=0, description="Bottom of the plot, relative to the loudest point")
+    ir_fs: float = Field(gt=0, description="Sample rate the stored impulse is resampled to (keep > 2x hz top)")
+    ir_ms: float = Field(gt=0, description="How much impulse after the peak is stored for the waterfall")
+
+
 class DashboardSettings(_Strict):
     enabled: bool
     allow_lan: bool = Field(description="Serve on the home network so a paired phone can drive the crawl")
@@ -252,6 +264,7 @@ class DashboardSettings(_Strict):
     chart_hz: tuple[float, float]
     chart_ppo: int
     chart_smoothing: float
+    waterfall: WaterfallSettings
 
 
 class BalanceSettings(_Strict):

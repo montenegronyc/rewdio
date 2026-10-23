@@ -89,8 +89,10 @@ async def test_dashboard_serves_tokens_and_state(sim_runtime):
 
 def test_ui_is_monochrome_mixed_case_and_rectangular():
     import re
+    import json
     tokens = (SRC / "dashboard" / "tokens.json").read_text()
-    hexes = {h.lower() for h in re.findall(r"#[0-9a-fA-F]{6}\b", tokens)}
+    mono = json.dumps({k: v for k, v in json.loads(tokens).items() if k != "waterfall"})
+    hexes = {h.lower() for h in re.findall(r"#[0-9a-fA-F]{6}\b", mono)}
     assert hexes <= {"#000000", "#f3eee2"}, hexes  # cream and black; colour only ever for waterfalls
     assert "radius" not in tokens
     css = (SRC.parents[1] / "web" / "src" / "styles.css").read_text()

@@ -1,13 +1,11 @@
 #!/usr/bin/env sh
-# Cut the capture video into README GIFs: sh docs/capture/gifs.sh <capture-out-dir> docs/img
+# Turn the recorded segments into README GIFs: sh docs/capture/gifs.sh <capture-out-dir> docs/img [prefix] [width]
+# For a desktop run (PREFIX=mac- in capture.mjs): sh docs/capture/gifs.sh <dir> docs/img mac- 800
 set -e
-cap=$1; out=$2
-get() { python3 -c "import json,sys; print(json.load(open('$cap/marks.json'))['$1'])"; }
-video=$(get video)
-gif() {  # name start end
-  ffmpeg -loglevel error -y -ss "$2" -to "$3" -i "$video" -vf \
-    "fps=12,scale=360:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=48:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" \
-    "$out/$1.gif"
-}
-gif crawl "$(get crawl_start)" "$(get crawl_end)"
-gif ab "$(get ab_start)" "$(get ab_end)"
+cap=$1; out=$2; prefix=${3:-}; width=${4:-360}
+for name in crawl ab; do
+  # skip the page load at the start of each segment
+  ffmpeg -loglevel error -y -ss 0.9 -i "$cap/$prefix$name.webm" -vf \
+    "fps=12,scale=$width:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=48:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" \
+    "$out/$prefix$name.gif"
+done

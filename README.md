@@ -233,20 +233,31 @@ Rewdio; run `cd web && npm install && npm run build` only if you change it.
 One page at **http://127.0.0.1:8765/**, on the computer or a paired phone, with four tabs:
 - **Room:** the crawl grid and the next spot.
 - **Status:** phase, bass deviation, crossover summation, L/R balance, and measured / predicted / target
-  response at each seat. Open the log underneath it.
+  response at each seat. Switch the chart to **Waterfall** to see how long each frequency rings after the
+  sound stops: ridges that reach far back are room modes. Open the log underneath it.
 - **Setups:** saved setups and the A/B switch (below).
 - **Settings:** the setup wizard.
 
 <p>
   <img src="docs/img/status.png" width="240" alt="Status">
+  <img src="docs/img/waterfall.png" width="240" alt="Status with the waterfall">
   <img src="docs/img/settings.png" width="240" alt="Settings">
 </p>
 
+On the computer it's the same page in a browser window:
+
+<p><img src="docs/img/mac-crawl.gif" width="720" alt="The crawl in a desktop browser window"></p>
+<p><img src="docs/img/mac-waterfall.png" width="720" alt="The waterfall in a desktop browser window"></p>
+
 The look is monochrome: cream and black, Public Sans (Light, Medium, SemiBold, bundled so it works
-offline), hairline dividers and rectangular controls. Colour is reserved for waterfall plots. Every value
-comes from design tokens in `src/rewdio/dashboard/tokens.json`, compiled to CSS custom properties; tests
-fail if the stylesheet contains a literal colour or a rounded corner, or if the tokens contain anything but
-cream and black.
+offline), hairline dividers and rectangular controls. Colour appears only in the waterfall, coloured by
+time. Every value comes from design tokens in `src/rewdio/dashboard/tokens.json`, compiled to CSS custom
+properties. Tests fail if the stylesheet contains a literal colour or a rounded corner, or if any token
+outside the waterfall ramp is anything but cream or black.
+
+The waterfall is a cumulative spectral decay. Each slice is the spectrum of a 300 ms window starting
+20 ms later than the one before, taken from the impulse of the latest full-system sweep, which is kept
+resampled to 2 kHz for the bass. Its span, window, step and slice count are under `dashboard.waterfall`.
 
 ### Setups and A/B listening
 
@@ -263,6 +274,8 @@ writes the whole setup to the miniDSP in one go, with every output playing. **Bl
   <img src="docs/img/setups.png" width="240" alt="Two setups on A and B">
   <img src="docs/img/setups-blind.png" width="240" alt="Blind comparison">
 </p>
+
+<p><img src="docs/img/mac-ab.gif" width="720" alt="A/B and blind comparison in a desktop browser window"></p>
 
 Each setup carries a small response thumbnail and its bass deviation when it was swept as-is. If you
 save one Claude hasn't measured, `save_setup` with `measure_first` takes one sweep first. The setup on the
@@ -409,6 +422,9 @@ The README images are captured from the real GUI driving a simulated calibration
 uv run python docs/capture/serve.py /tmp/rewdio-capture 8799 &
 node docs/capture/capture.mjs http://127.0.0.1:8799/ /tmp/rewdio-shots   # needs Playwright
 sh docs/capture/gifs.sh /tmp/rewdio-shots docs/img                       # needs ffmpeg
+# the desktop-window set, against a fresh serve.py
+VIEWPORT=1440x900 PREFIX=mac- node docs/capture/capture.mjs http://127.0.0.1:8799/ /tmp/rewdio-shots
+sh docs/capture/gifs.sh /tmp/rewdio-shots docs/img mac- 800
 ```
 
 ## Credits
@@ -419,4 +435,5 @@ daredoole/audio-calibration-mcp and KevinMeinon/rew-mcp-server, all MIT-licensed
 
 ## License
 
-MIT
+Copyright © 2026 Number Fortyeight Inc. All rights reserved. See [LICENSE](LICENSE).
+Third-party components keep their own licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
