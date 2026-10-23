@@ -289,6 +289,14 @@ class CrawlGrid(_Strict):
     max_cells: int = Field(ge=3, description="Safety cap on how many cells one crawl may visit")
 
 
+class SetupLibrary(_Strict):
+    dir: str | None = Field(description="Folder for named, dated DSP setups; null = <REWDIO_HOME>/setups")
+    autosave_on_done: bool = Field(description="Save the finished calibration as a setup automatically")
+    thumb_hz: tuple[float, float] = Field(description="Frequency span of a setup's response thumbnail")
+    thumb_ppo: int = Field(ge=1, description="Thumbnail points per octave")
+    thumb_smoothing: float = Field(description="Thumbnail fractional-octave smoothing")
+
+
 class SystemConfig(_Strict):
     rew_url: str
     minidsp_url: str = Field(description="minidsp-rs daemon: http://host:5380 or unix:///path/to/minidsp.sock")
@@ -323,6 +331,7 @@ class SystemConfig(_Strict):
     rew_client: RewClientSettings
     balance: BalanceSettings
     dashboard: DashboardSettings
+    setups: SetupLibrary
     tuning: Tuning
 
     @model_validator(mode="after")

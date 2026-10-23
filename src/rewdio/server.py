@@ -10,7 +10,7 @@ from mcp.server.mcpserver import MCPServer
 
 from .analysis.metrics import summarize
 from .dashboard.app import serve_in_background
-from .engine import setup
+from .engine import dsp_setups, setup
 from .engine.runtime import Runtime
 from .prompts import register as register_prompts
 
@@ -254,6 +254,36 @@ async def solo(roles: list[str]) -> dict:
             return BUSY
         await rt.rig.solo(roles)
     return {"playing": roles}
+
+
+@mcp.tool()
+async def list_setups() -> list[dict]:
+    """Saved DSP setups, newest first: id, name, date, bass flatness, and which one is on the miniDSP now."""
+    return [{k: d.get(k) for k in ("id", "name", "created", "note", "source", "bass_std_db", "active")}
+            for d in dsp_setups.list_all(runtime().session)]
+
+
+@mcp.tool()
+async def save_setup(name: str, note: str | None = None) -> dict:
+    """Save what's on the miniDSP now as a named, dated setup (for A/B listening later)."""
+    d = dsp_setups.save(runtime().session, name, note)
+    return {k: d.get(k) for k in ("ok", "id", "name", "created", "bass_std_db", "message")}
+
+
+@mcp.tool()
+async def recall_setup(setup: str) -> dict:
+    """Put a saved setup (id or name) on the miniDSP, all outputs playing. Call twice with two setups to A/B."""
+    rt = runtime()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return await dsp_setups.recall(rt.rig, setup)
+
+
+@mcp.tool()
+async def delete_setup(setup_id: str) -> dict:
+    """Delete a saved setup file by id."""
+    return dsp_setups.delete(runtime().session, setup_id)
 
 
 @mcp.tool()

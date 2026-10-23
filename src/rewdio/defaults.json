@@ -311,5 +311,15 @@
     "excluded": [],
     "max_cells": 32
   },
-  "rew_output_all": null
+  "rew_output_all": null,
+  "setups": {
+    "dir": null,
+    "autosave_on_done": true,
+    "thumb_hz": [
+      15.0,
+      400.0
+    ],
+    "thumb_ppo": 12,
+    "thumb_smoothing": 6
+  }
 }

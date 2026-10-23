@@ -149,7 +149,40 @@ def routes(runtime: Callable) -> list[Route]:
         from ..engine import setup
         return JSONResponse(await setup.check(runtime(), (await req.json()).get("checks", [])))
 
-    return [Route("/api/setup", setup_get), Route("/api/setup", setup_save, methods=["POST"]),
+    async def setups_get(req):
+        if not (is_local(req) or authed(req)):
+            return deny()
+        from ..engine import dsp_setups
+        return JSONResponse(dsp_setups.list_all(runtime().session))
+
+    async def setups_post(req):
+        if not authed(req):
+            return deny()
+        from ..engine import dsp_setups
+        try:
+            body = await req.json()
+            op = body["op"]
+        except (ValueError, KeyError, TypeError):
+            return JSONResponse({"ok": False, "message": "send {op, ...}"}, status_code=400)
+        rt = runtime()
+        if op == "save":
+            res = dsp_setups.save(rt.session, str(body.get("name", "")), body.get("note"))
+        elif op == "delete":
+            res = dsp_setups.delete(rt.session, str(body.get("id", "")))
+        elif op == "rename":
+            res = dsp_setups.rename(rt.session, str(body.get("id", "")), str(body.get("name", "")))
+        elif op == "recall":
+            if rt.busy:
+                return JSONResponse({"ok": False, "message": "busy"}, status_code=409)
+            async with rt.lock:
+                res = await dsp_setups.recall(rt.rig, str(body.get("id", "")))
+        else:
+            return JSONResponse({"ok": False, "message": f"unknown op {op!r}"}, status_code=400)
+        rt.session.version += 1  # nudge live views
+        return JSONResponse(json.loads(json.dumps(res, default=str)), status_code=200 if res.get("ok") else 400)
+
+    return [Route("/api/setups", setups_get), Route("/api/setups", setups_post, methods=["POST"]),
+            Route("/api/setup", setup_get), Route("/api/setup", setup_save, methods=["POST"]),
             Route("/api/setup/check", setup_check, methods=["POST"]),
             Route("/api/state", state), Route("/api/events", events), Route("/api/confirm", confirm, methods=["POST"]),
             Route("/api/step", step, methods=["POST"]), Route("/api/crawl/cell", cell, methods=["POST"]),

@@ -72,12 +72,13 @@ class Rig:
         await self._commit(DspState(outputs={c.role: OutputState(gain_db=b.gain_db, delay_ms=b.delay_ms, invert=b.invert)
                                              for c in self.cfg.channels}))
 
-    async def apply(self, state: DspState) -> None:
+    async def apply(self, state: DspState, listen: bool = False) -> None:
+        """Write `state` to every channel (clamped). listen=True unmutes everything in the same write."""
         new = self._copy()
         lo, hi = self.cfg.dsp_gain_range_db
         for c in self.cfg.channels:
             o = state.get(c.role).model_copy(deep=True)
-            o.mute = self.s.dsp.get(c.role).mute
+            o.mute = False if listen else self.s.dsp.get(c.role).mute
             o.gain_db = min(max(o.gain_db, lo), hi)
             o.delay_ms = min(max(o.delay_ms, 0.0), self.cfg.dsp_max_delay_ms)
             new.outputs[c.role] = o

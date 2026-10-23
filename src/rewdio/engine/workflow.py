@@ -47,6 +47,7 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
         budget = max_sweeps or self.cfg.tuning.autopilot.max_sweeps_per_step
         log: list[str] = []
         start = len(self.s.measurements)
+        was_done = self.wf.done
         try:
             while not self.wf.done:
                 if len(self.s.measurements) - start >= budget:
@@ -56,6 +57,10 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
                 self.wf.history.append({"phase": phase, "next": nxt, "sweeps": len(self.s.measurements)})
                 self.wf.phase = nxt
                 self.s.save()
+            if not was_done and self.cfg.setups.autosave_on_done:
+                from . import dsp_setups
+                saved = dsp_setups.save(self.s, "Calibrated", source="autopilot")
+                log.append(f"saved setup {saved['id']}")
             return self._report("done", log)
         except NeedUser as e:
             return self._report("user_action_required", log, action=e.action)
