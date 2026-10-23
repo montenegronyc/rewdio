@@ -1,41 +1,30 @@
-"""System configuration: what is plugged in where, and what "done" means.
+"""System configuration: what is plugged in where, how the solvers are tuned, and what "done" means.
 
-Everything here is persisted with the session so a calibration can resume after
-a restart without re-asking the user how the rig is wired.
+No values live here. Defaults come from `defaults.json` (shipped with the package), overlaid by the
+user's config file (`$REWDIO_CONFIG`, else `~/.rewdio/config.json`), overlaid by per-session changes.
+These models only define and validate the shape; unknown keys are rejected so typos fail loudly.
 """
 
 from __future__ import annotations
 
+import copy
+import json
+import os
 from enum import Enum
-from typing import Literal
+from importlib import resources
+from pathlib import Path
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class ChannelKind(str, Enum):
     MAIN = "main"
     SUB = "sub"
-
-
-class Channel(BaseModel):
-    """One loudspeaker fed by one miniDSP output."""
-
-    role: str = Field(description="Short name, e.g. L, R, SUB1, SUB2")
-    kind: ChannelKind
-    dsp_output: int = Field(ge=0, description="0-based miniDSP output index")
-    rew_output_channel: str | None = Field(
-        default=None,
-        description="REW output channel to drive for this speaker. None = leave REW's selection alone "
-        "(normally both channels, with the miniDSP doing the soloing).",
-    )
-
-
-class Baseline(BaseModel):
-    """DSP values asserted on every Rewdio-managed output before calibrating."""
-
-    gain_db: float = 0.0
-    delay_ms: float = 0.0
-    invert: bool = False
 
 
 class TimingMode(str, Enum):
@@ -44,82 +33,237 @@ class TimingMode(str, Enum):
     SUM_FIT = "sum_fit"  # no reference: relative timing fitted from combined sweeps
 
 
-class TargetCurve(BaseModel):
-    """Target response relative to the mains reference level.
-
-    A low-shelf "house curve": +`bass_boost_db` below `shelf_hz`, flat above.
-    """
-
-    bass_boost_db: float = Field(default=4.0, ge=-6, le=12)
-    shelf_hz: float = Field(default=70.0, gt=10, lt=300)
-    shelf_octaves: float = Field(default=1.5, gt=0.1, le=4, description="Transition width of the shelf")
+class Channel(_Strict):
+    role: str = Field(description="Short name, e.g. L, R, SUB1, SUB2")
+    kind: ChannelKind
+    dsp_output: int = Field(ge=0, description="0-based miniDSP output index")
+    rew_output_channel: str | None = Field(
+        default=None, description="REW output channel for this speaker; null = leave REW's selection alone")
 
 
-class Convergence(BaseModel):
-    lr_level_tolerance_db: float = 0.5
-    min_crossover_efficiency_db: float = -1.0
-    max_bass_deviation_db: float = 3.0
-    max_prediction_error_db: float = 1.5
-    max_iterations: int = 4
+class Baseline(_Strict):
+    gain_db: float
+    delay_ms: float
+    invert: bool
 
 
-class SweepSettings(BaseModel):
-    start_hz: int = 10
-    end_hz: int = 20000
-    length: str = "256k"
-    level_dbfs: float = -36.0  # start quiet; gain staging ramps up
-    min_level_dbfs: float = -50.0
-    max_level_dbfs: float = -6.0
-    target_spl_db: float = 80.0  # gain staging target at the seat, 500 Hz-2 kHz for mains / LF band for subs
-    max_spl_db: float = 100.0  # REW protection abort
-    min_snr_db: float = 40.0
+class TargetCurve(_Strict):
+    bass_boost_db: float = Field(ge=-6, le=12)
+    shelf_hz: float = Field(gt=10, lt=300)
+    shelf_octaves: float = Field(gt=0.1, le=4)
+    house_curve_path: str | None = Field(description="REW-style house curve text file (freq dB); overrides the shelf")
 
 
-class SystemConfig(BaseModel):
-    rew_url: str = "http://127.0.0.1:4735"
-    minidsp_url: str = Field(
-        default="unix:///tmp/minidsp.sock",
-        description="minidsp-rs daemon: http://host:5380 or unix:///path/to/minidsp.sock",
-    )
-    minidsp_device_index: int = 0
-    dsp_sample_rate: int = Field(default=96000, description="miniDSP internal rate: 96000 for 2x4HD/Flex/DDRC-24, 48000 for SHD/2x4")
-    dsp_max_delay_ms: float = 8.0
-    dsp_gain_range_db: tuple[float, float] = (-72.0, 12.0)
-    peq_slots: list[int] = Field(
-        default_factory=lambda: [5, 6, 7, 8, 9],
-        description="Output PEQ slots Rewdio may overwrite. Leave the rest for your own filters.",
-    )
-    channels: list[Channel] = Field(
-        default_factory=lambda: [
-            Channel(role="L", kind=ChannelKind.MAIN, dsp_output=0),
-            Channel(role="R", kind=ChannelKind.MAIN, dsp_output=1),
-            Channel(role="SUB1", kind=ChannelKind.SUB, dsp_output=2),
-            Channel(role="SUB2", kind=ChannelKind.SUB, dsp_output=3),
-        ]
-    )
-    baseline: Baseline = Field(default_factory=Baseline)
-    crossover_hz: float = Field(default=80.0, description="Nominal sub/mains crossover already set in the DSP")
-    timing_mode: TimingMode = TimingMode.SUM_FIT
-    timing_reference_channel: str = Field(default="L", description="Channel every other channel is timed against in sum-fit mode")
-    mic_positions: list[str] = Field(
-        default_factory=lambda: ["MLP"],
-        description="Seats to measure each pass. First is the main listening position.",
-    )
-    do_sub_crawl: bool = Field(default=False, description="Run the reciprocity crawl to choose sub positions first")
-    crawl_positions: int = Field(default=8, ge=3, le=40)
-    target: TargetCurve = Field(default_factory=TargetCurve)
-    convergence: Convergence = Field(default_factory=Convergence)
-    sweep: SweepSettings = Field(default_factory=SweepSettings)
-    room_dims_m: tuple[float, float, float] | None = Field(
-        default=None, description="Room length (front-to-back, x), width (y), height (z). Enables suggested crawl spots.")
-    seat_xyz: dict[str, tuple[float, float, float]] = Field(
-        default_factory=dict, description="Coordinates of mic positions/seats in metres (origin: front-left floor corner)")
-    mic_cal_path: str | None = Field(default=None, description="SoundID Reference mic cal file to load into REW")
-    mic_sensitivity_dbfs: float | None = None
-    max_sub_gain_db: float = Field(default=6.0, description="Sub output gain ceiling (headroom); mains are cut instead")
-    allow_peq: bool = True
-    max_peq_boost_db: float = 3.0
-    analysis_ppo: int = 96
+class Convergence(_Strict):
+    lr_level_tolerance_db: float
+    min_crossover_efficiency_db: float
+    max_bass_deviation_db: float = Field(description="Max std of bass deviation from target")
+    max_prediction_error_db: float
+    max_iterations: int = Field(ge=1)
+    plateau_improvement_db: float
+
+
+class SweepSettings(_Strict):
+    start_hz: int
+    end_hz: int
+    length: str
+    level_dbfs: float
+    min_level_dbfs: float
+    max_level_dbfs: float
+    target_spl_db: float
+    max_spl_db: float
+    min_snr_db: float
+    start_delay_s: float = Field(description="REW start delay; raise it if a DAC/upsampler eats the sweep start")
+    rew_sample_rate: int = Field(description="REW's audio sample rate, used to size the sweep timeout")
+
+
+class RewClientSettings(_Strict):
+    read_timeout_s: float
+    command_timeout_s: float
+    poll_interval_s: float
+    settle_s: float = Field(description="Pause after a sweep lands; REW refuses back-to-back sweeps otherwise")
+    timeout_margin_s: float = Field(description="Added to the sweep's own duration for the completion timeout")
+
+
+class Physics(_Strict):
+    speed_of_sound_m_s: float
+
+
+class Grid(_Strict):
+    f_lo_hz: float
+    f_hi_hz: float
+
+
+class Bands(_Strict):
+    mains_level_hz: tuple[float, float]
+    bass_eval_hz: tuple[float, float]
+    bass_smoothing: float
+    level_smoothing: float
+    sub_level_lo_hz: float
+    sub_level_xo_factor: float
+    crossover_span_factor: float
+    sub_pair_lo_hz: float
+    sub_pair_xo_factor: float
+    sub_pair_max_hz: float
+    peq_lo_hz: float
+    peq_xo_factor: float
+    peq_max_hz: float
+    sumfit_mains_hz: tuple[float, float]
+    crawl_eval_hz: tuple[float, float]
+    prediction_check_hz: tuple[float, float]
+    summary_peaks_hz: tuple[float, float]
+
+
+class AlignmentTuning(_Strict):
+    delay_step_ms: float
+    tie_tolerance_db: float
+    sumfit_max_ms: float
+    sumfit_step_ms: float
+    sumfit_confident_residual_db: float
+    sumfit_confident_margin_db: float
+    arrival_f_hi_hz: float
+    arrival_onset_fraction: float
+    arrival_hp_hz: float
+
+
+class PairTuning(_Strict):
+    gain_range_db: float
+    smoothing: float
+    spread_weight: float
+    loss_weight: float
+    coarse_delay_step_ms: float
+    coarse_gain_step_db: float
+    fine_delay_step_ms: float
+    fine_gain_step_db: float
+    delay_tie_penalty_per_ms: float
+    gain_tie_penalty_per_db: float
+
+
+class PeqTuning(_Strict):
+    max_cut_db: float
+    smoothing: float
+    spread_limit_db: float
+    dip_weight: float
+    min_q: float
+    max_q: float
+    start_q: float
+    min_gain_db: float
+    min_improvement_db: float
+    stop_error_db: float
+    max_nfev: int
+
+
+class GainStaging(_Strict):
+    tolerance_db: float
+    max_steps: int
+    max_step_up_db: float
+    max_step_down_db: float
+    abort_backoff_db: float
+    peak_margin_db: float
+
+
+class CrawlTuning(_Strict):
+    wall_distance_m: float
+    mic_height_m: float
+    top_pairs: int
+
+
+class AutopilotTuning(_Strict):
+    max_sweeps_per_step: int
+    sumfit_probe_fraction_of_period: float
+
+
+class QualityTuning(_Strict):
+    min_snr_db_critical: float
+    min_snr_db_warning: float
+    silent_channel_margin_db: float
+    max_start_hz: float
+    repeat_check: bool
+    repeat_band_hz: tuple[float, float]
+    max_repeat_std_db: float
+
+
+class DiagnosticsTuning(_Strict):
+    mode_max_hz: float
+    mode_match_tolerance: float
+    sbir_band_hz: tuple[float, float]
+    sbir_min_q: float
+    seat_spread_flag_db: float
+    seat_outlier_db: float
+    seat_band_hz: tuple[float, float]
+    seat_smoothing: float
+
+
+class PreflightTuning(_Strict):
+    input_level_listen_s: float
+    require_live_mic: bool
+
+
+class CrosscheckTuning(_Strict):
+    enabled: bool = Field(description="Cross-check Rewdio's maths against REW's own alignment tool and EQ engine")
+    alignment_disagree_ms: float
+    peq_disagree_db: float
+    rew_equaliser: dict[str, str] = Field(description="REW equaliser profile matching the miniDSP")
+
+
+class Tuning(_Strict):
+    physics: Physics
+    grid: Grid
+    bands: Bands
+    alignment: AlignmentTuning
+    pair: PairTuning
+    peq: PeqTuning
+    gain_staging: GainStaging
+    crawl: CrawlTuning
+    autopilot: AutopilotTuning
+    quality: QualityTuning
+    diagnostics: DiagnosticsTuning
+    preflight: PreflightTuning
+    crosscheck: CrosscheckTuning
+
+
+class DashboardSettings(_Strict):
+    enabled: bool
+    host: str
+    port: int
+    refresh_ms: int
+    log_lines: int
+    chart_hz: tuple[float, float]
+    chart_ppo: int
+    chart_smoothing: float
+
+
+class SystemConfig(_Strict):
+    rew_url: str
+    minidsp_url: str = Field(description="minidsp-rs daemon: http://host:5380 or unix:///path/to/minidsp.sock")
+    minidsp_device_index: int
+    dsp_sample_rate: int = Field(description="miniDSP internal rate: 96000 for 2x4HD/Flex/DDRC-24, 48000 for SHD/2x4")
+    dsp_max_delay_ms: float
+    dsp_gain_range_db: tuple[float, float]
+    peq_slots: list[int] = Field(description="Output PEQ slots Rewdio may overwrite")
+    channels: list[Channel]
+    baseline: Baseline
+    crossover_hz: float = Field(description="Nominal sub/mains crossover already set in the DSP")
+    timing_mode: TimingMode
+    timing_reference_channel: str
+    mic_positions: list[str] = Field(description="Seats to measure each pass; first is the main listening position")
+    do_sub_crawl: bool
+    crawl_positions: int = Field(ge=3, le=40)
+    room_dims_m: tuple[float, float, float] | None = Field(description="Length (x, front to back), width (y), height (z)")
+    seat_xyz: dict[str, tuple[float, float, float]] = Field(description="Seat coordinates, origin front-left floor corner")
+    mic_cal_path: str | None
+    mic_sensitivity_dbfs: float | None
+    max_sub_gain_db: float = Field(description="Sub output gain ceiling (headroom); mains are cut instead")
+    allow_peq: bool
+    max_peq_boost_db: float
+    analysis_ppo: int
+    sim_scenario: str | None = Field(description="Simulator scenario JSON; null = packaged default")
+    target: TargetCurve
+    convergence: Convergence
+    sweep: SweepSettings
+    rew_client: RewClientSettings
+    dashboard: DashboardSettings
+    tuning: Tuning
 
     @model_validator(mode="after")
     def _check(self) -> SystemConfig:
@@ -151,3 +295,35 @@ class SystemConfig(BaseModel):
 
 
 PhaseMode = Literal["absolute", "geometric", "magnitude"]
+
+
+def deep_merge(base: dict, over: dict) -> dict:
+    out = copy.deepcopy(base)
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict) and k != "seat_xyz":
+            out[k] = deep_merge(out[k], v)
+        else:
+            out[k] = copy.deepcopy(v)
+    return out
+
+
+def default_dict() -> dict[str, Any]:
+    return json.loads(resources.files("rewdio").joinpath("defaults.json").read_text())
+
+
+def user_config_path() -> Path:
+    env = os.environ.get("REWDIO_CONFIG")
+    if env:
+        return Path(env)
+    return Path(os.environ.get("REWDIO_HOME", Path.home() / ".rewdio")) / "config.json"
+
+
+def load_config(overrides: dict | None = None, user_file: Path | None = None) -> SystemConfig:
+    """defaults.json < user config file < overrides."""
+    data = default_dict()
+    path = user_file or user_config_path()
+    if path.exists():
+        data = deep_merge(data, json.loads(path.read_text()))
+    if overrides:
+        data = deep_merge(data, overrides)
+    return SystemConfig.model_validate(data)

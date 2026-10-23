@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..analysis.quality import check_sweep
 from ..analysis.response import Response, log_grid
 from ..config import SystemConfig, TimingMode
 from ..minidsp.client import MiniDSPClient
@@ -22,7 +23,8 @@ class Rig:
         return self.s.config
 
     def grid(self):
-        return log_grid(self.cfg.analysis_ppo)
+        g = self.cfg.tuning.grid
+        return log_grid(self.cfg.analysis_ppo, g.f_lo_hz, g.f_hi_hz)
 
     # -- DSP ------------------------------------------------------------------------
 
@@ -84,7 +86,8 @@ class Rig:
             await self.rew.set_input_cal(cfg.mic_cal_path, cfg.mic_sensitivity_dbfs)
         cal = await self.rew.input_cal()
         report["mic_cal"] = (cal.get("calDataAllInputs") or {}).get("calFilePath") or None
-        await self.rew.configure_sweep(cfg.sweep.start_hz, cfg.sweep.end_hz, cfg.sweep.length)
+        sw = cfg.sweep
+        await self.rew.configure_sweep(sw.start_hz, sw.end_hz, sw.length, sw.start_delay_s, sw.rew_sample_rate)
         await self.rew.set_level(self.level_dbfs)
         await self.rew.set_protection(cfg.sweep.max_spl_db)
         choices = await self.rew.timing_reference_choices()
@@ -112,9 +115,15 @@ class Rig:
         spec = await self.rew.frequency_response(summary["uuid"], ppo=self.cfg.analysis_ppo)
         resp = Response.from_db_phase(spec.freqs, spec.mag_db, spec.phase_deg, grid=self.grid())
         snap = DspState(outputs={r: self.s.dsp.get(r).model_copy(deep=True) for r in roles})
+        findings = check_sweep(self.cfg, resp, summary, list(roles), self.s.workflow.staging_reference_db)
         rec = MeasurementRecord(id=summary["uuid"], title=title, kind=kind, roles=list(roles), position=position,
                                 pass_no=self.s.workflow.pass_no, snapshot=snap, level_dbfs=self.level_dbfs,
                                 timing=self.cfg.timing_mode.value,
-                                extra={**extra, "snr_db": summary.get("signalToNoisedB")})
+                                extra={**extra, "snr_db": summary.get("signalToNoisedB"),
+                                       "quality": [f.as_dict() for f in findings]})
+        # provenance in REW itself, so a saved .mdat explains how it was taken
+        await self.rew.annotate(rec.id, title, {"rewdio": {"kind": kind, "roles": list(roles), "position": position,
+                                                           "pass": rec.pass_no, "level_dbfs": self.level_dbfs,
+                                                           "dsp": snap.model_dump(mode="json")["outputs"]}})
         self.s.add_measurement(rec, resp)
         return rec, resp

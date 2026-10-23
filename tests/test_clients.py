@@ -1,16 +1,21 @@
 import pytest
 
 from rewdio.minidsp.client import MiniDSPClient
+from rewdio.rew.extras import input_levels
 from rewdio.rew.client import RewClient, RewError
 from rewdio.sim.fakes import transports
 from rewdio.sim.world import default_world
 
 
-async def test_rew_client_sweep_and_frequency_response():
+def fast(cfg):
+    return cfg.rew_client.model_copy(update={"settle_s": 0.0, "poll_interval_s": 0.0})
+
+
+async def test_rew_client_sweep_and_frequency_response(cfg):
     w = default_world()
     rt, _, fake, _ = transports(w)
-    rew = RewClient(transport=rt, poll_interval=0, command_timeout=2)
-    await rew.configure_sweep(10, 20000, "256k")
+    rew = RewClient("http://rew", fast(cfg), transport=rt)
+    await rew.configure_sweep(10, 20000, "256k", 0.0, 48000)
     await rew.set_level(-40)
     m = await rew.sweep("test")
     assert m["title"] == "test"
@@ -20,9 +25,9 @@ async def test_rew_client_sweep_and_frequency_response():
     await rew.aclose()
 
 
-async def test_rew_errors_carry_valid_values():
+async def test_rew_errors_carry_valid_values(cfg):
     rt, _, _, _ = transports(default_world())
-    rew = RewClient(transport=rt)
+    rew = RewClient("http://rew", fast(cfg), transport=rt)
     with pytest.raises(RewError) as e:
         await rew.set_timing_reference("Telepathy")
     assert "Loopback" in e.value.valid_values
@@ -37,3 +42,12 @@ async def test_minidsp_client_writes_reach_the_device():
     assert w.dsp[3].gain_db == -2.5 and abs(w.dsp[3].delay_ms - 1.25) < 1e-9 and w.dsp[3].mute
     assert (await dsp.devices())[0]["product_name"].startswith("2x4HD")
     await dsp.aclose()
+
+
+async def test_protection_is_read_back_and_input_levels_detect_a_live_mic(cfg):
+    rt, _, fake, _ = transports(default_world())
+    rew = RewClient("http://rew", fast(cfg), transport=rt)
+    got = await rew.set_protection(100.0)
+    assert got["clippingAbort"] and got["dBSPLLimit"] == 100.0 and got["warnForLowLevels"] is False
+    assert (await input_levels(rew, 0.0))["mic_alive"]
+    await rew.aclose()

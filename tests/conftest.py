@@ -29,3 +29,10 @@ def sim_runtime(tmp_path):
         return rt
 
     yield make
+
+
+@pytest.fixture
+def cfg():
+    from rewdio.config import load_config
+    from pathlib import Path
+    return load_config(user_file=Path("/nonexistent"))

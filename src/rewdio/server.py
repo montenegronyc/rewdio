@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
 from .analysis.metrics import summarize
-from .config import SystemConfig
+from .config import SystemConfig, deep_merge
+from .dashboard.app import serve_in_background
 from .engine.runtime import Runtime
+from .prompts import register as register_prompts
 
 INSTRUCTIONS = """\
 Rewdio calibrates a sub + mains system by driving REW (sweeps) and a miniDSP (mute/solo, gain,
@@ -30,8 +33,24 @@ The manual tools (`measure`, `set_channel`, `solo`, `analyze_measurement`) are f
 for answering the user's questions; the autopilot does not need them.
 """
 
-mcp = MCPServer("rewdio", instructions=INSTRUCTIONS)
 _rt: Runtime | None = None
+_dashboard_url: str | None = None
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_server):
+    """Start the live dashboard next to the MCP server when enabled in config."""
+    global _dashboard_url
+    d = runtime().session.config.dashboard
+    if not d.enabled:
+        yield {}
+        return
+    async with serve_in_background(lambda: runtime().session, d.host, d.port) as url:
+        _dashboard_url = url
+        yield {}
+
+
+mcp = MCPServer("rewdio", instructions=INSTRUCTIONS, lifespan=lifespan)
 
 
 def runtime() -> Runtime:
@@ -39,6 +58,9 @@ def runtime() -> Runtime:
     if _rt is None:
         _rt = Runtime(os.environ.get("REWDIO_SESSION", "default"))
     return _rt
+
+
+register_prompts(mcp, runtime)
 
 
 def _clean(obj: Any) -> Any:
@@ -74,6 +96,15 @@ async def rewdio_status() -> dict:
 
 
 @mcp.tool()
+async def dashboard_url() -> dict:
+    """URL of the live dashboard (open it in a browser to watch the calibration)."""
+    d = runtime().session.config.dashboard
+    if not d.enabled:
+        return {"enabled": False, "hint": "configure {'dashboard': {'enabled': true}} and restart the server"}
+    return {"enabled": True, "url": _dashboard_url or f"http://{d.host}:{d.port}/ (port was busy; run rewdio-dashboard)"}
+
+
+@mcp.tool()
 async def configure(updates: dict) -> dict:
     """Update the rig configuration (merged into the current one, validated, persisted).
 
@@ -84,20 +115,14 @@ async def configure(updates: dict) -> dict:
     target {bass_boost_db, shelf_hz}, convergence {...}, sweep {...}, rew_url, minidsp_url.
     """
     rt = runtime()
-    merged = rt.session.config.model_dump(mode="json")
-    for k, v in updates.items():
-        if isinstance(v, dict) and isinstance(merged.get(k), dict):
-            merged[k] = {**merged[k], **v}
-        else:
-            merged[k] = v
-    rt.session.config = SystemConfig.model_validate(merged)
+    rt.session.config = SystemConfig.model_validate(deep_merge(rt.session.config.model_dump(mode="json"), updates))
     rt.session.save()
     await rt.reconnect()
     return {"ok": True, "config": rt.session.config.model_dump(mode="json")}
 
 
 @mcp.tool()
-async def autopilot_step(max_sweeps: int = 60) -> dict:
+async def autopilot_step(max_sweeps: int | None = None) -> dict:
     """Advance the calibration as far as possible without the user.
 
     Returns status: `user_action_required` (relay action.instructions, then confirm_user_action),
@@ -155,7 +180,7 @@ async def measure(roles: list[str], position: str = "MLP", label: str | None = N
         rt.session.config.channel(r)
     rec, resp = await rt.rig.measure(roles, "manual", position, title=label)
     return _clean({"id": rec.id, "title": rec.title, "snr_db": rec.extra.get("snr_db"),
-                   "summary": summarize(resp, rt.session.config.crossover_hz)})
+                   "summary": summarize(resp, rt.session.config)})
 
 
 @mcp.tool()
@@ -167,7 +192,7 @@ async def analyze_measurement(measurement_id: str) -> dict:
         return {"error": f"unknown measurement {measurement_id}",
                 "known": [m.id for m in rt.session.measurements[-10:]]}
     return _clean({"record": rec.model_dump(mode="json"),
-                   "summary": summarize(rt.session.response(rec.id), rt.session.config.crossover_hz)})
+                   "summary": summarize(rt.session.response(rec.id), rt.session.config)})
 
 
 @mcp.tool()

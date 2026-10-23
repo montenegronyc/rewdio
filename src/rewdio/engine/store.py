@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..analysis.response import Response
-from ..config import SystemConfig
+from ..config import load_config
 from ..minidsp.state import DspState
 
 
@@ -33,9 +33,12 @@ class WorkflowState(BaseModel):
     phase: str = "PREFLIGHT"
     pass_no: int = 0
     pending_action: dict | None = None
+    quality: list[dict] = Field(default_factory=list)  # findings from the measurement-quality gate
+    staging_reference_db: float | None = None
     mic_at: str | None = None  # position label where the mic currently is (as far as we know)
     crawl: dict = Field(default_factory=dict)
     history: list[dict] = Field(default_factory=list)
+    log_tail: list[str] = Field(default_factory=list)
     last_proposal: dict | None = None
     best: dict | None = None
     done: bool = False
@@ -46,7 +49,8 @@ class Session:
         base = Path(root or os.environ.get("REWDIO_HOME", Path.home() / ".rewdio"))
         self.dir = base / name
         (self.dir / "data").mkdir(parents=True, exist_ok=True)
-        self.config = self._load("config.json", SystemConfig)
+        # defaults.json < user config file < what this session saved (so new default keys still appear)
+        self.config = load_config(self._read("config.json", None))
         self.dsp = self._load("dsp.json", DspState)
         self.workflow = self._load("workflow.json", WorkflowState)
         self.measurements: list[MeasurementRecord] = [

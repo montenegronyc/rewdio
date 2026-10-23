@@ -34,6 +34,10 @@ class FakeRew:
         self.measurements: list[dict] = []  # each: summary + _h (complex), _f
         self.last_error = ""
         self.sweeps_run = 0
+        self.start_delay = 0.0
+        self.align = {"mode": "Phase", "index-a": 1, "index-b": 2, "max-positive-delay": 10.0,
+                      "max-negative-delay": 10.0, "delay-b": None, "invert-b": False}
+        self.eq_filters: dict[str, list[dict]] = {}
 
     # -- helpers -----------------------------------------------------------------
 
@@ -85,8 +89,9 @@ class FakeRew:
             t_ref = self.timing
         self.sweeps_run += 1
         noise_spl = w.noise_floor_spl
-        mid = (f > 200) & (f < 2000)
-        snr = float(np.mean(20 * np.log10(np.abs(h[mid]) + 1e-12)) - noise_spl) if mid.any() else 0.0
+        db = 20 * np.log10(np.abs(h) + 1e-12)
+        live = db > db.max() - 20  # SNR over the band the speaker actually reproduces, as REW reports it
+        snr = float(np.mean(db[live]) - noise_spl)
         m = {
             "uuid": str(uuidlib.uuid4()), "title": self.next_title, "notes": self.next_notes,
             "startFreq": f0, "endFreq": f1, "timingReference": t_ref or "None",
@@ -110,6 +115,25 @@ class FakeRew:
             return self._ok()
         if p == "/application/last-error":
             return self._ok({"message": self.last_error})
+        if p in ("/application/last-warning", "/application/errors", "/application/warnings"):
+            return self._ok({"message": ""})
+        if p == "/application/command":
+            return self._ok()
+        if p == "/measure/start-delay":
+            if meth == "POST":
+                self.start_delay = float(body)
+                return self._ok()
+            return self._ok(self.start_delay)
+        if p == "/input-levels/command":
+            return self._ok()
+        if p == "/input-levels/last-levels":
+            floor = self.world.noise_floor_spl - 120.0  # ~ -90 dBFS: a live mic hears room noise
+            return self._ok({"unit": "dBFS", "rms": [floor], "peak": [floor + 10], "timeSpanSeconds": 1.0})
+        if p.startswith("/alignment-tool/"):
+            return self._alignment(p.split("/", 2)[2], meth, body)
+        mm = re.fullmatch(r"/measurements/([^/]+)/(equaliser|filters|eq/frequency-response)", p)
+        if mm:
+            return self._eq(mm.group(1), mm.group(2), meth, body, request)
         if p == "/audio/driver":
             return self._ok({"driver": "Java"})
         if p == "/audio/java/output-channel":
@@ -186,8 +210,52 @@ class FakeRew:
             if meth == "DELETE":
                 self.measurements.remove(m)
                 return self._ok()
+            if meth == "PUT":
+                m.update({k: v for k, v in body.items() if k in ("title", "notes")})
+                return self._ok()
             return self._ok(self._summary(m))
         return self._err(f"simulator does not implement {meth} {p}", status=404)
+
+
+    def _alignment(self, key: str, meth: str, body):
+        if key == "command":
+            a, b = self.measurements[self.align["index-a"] - 1], self.measurements[self.align["index-b"] - 1]
+            f = float(body["frequency"])
+            ha = np.interp(np.log(f), np.log(a["_f"]), np.unwrap(np.angle(a["_h"])))
+            hb = np.interp(np.log(f), np.log(b["_f"]), np.unwrap(np.angle(b["_h"])))
+            # phase-match B to A at f with the smallest delay in range (what REW's "Align phase" does)
+            period = 1000.0 / f
+            d0 = ((hb - ha) / (2 * np.pi * f)) * 1000.0
+            cands = [d0 + k * period for k in range(-20, 21)]
+            ok = [d for d in cands if -self.align["max-negative-delay"] <= d <= self.align["max-positive-delay"]]
+            self.align["delay-b"] = min(ok, key=abs) if ok else None
+            return self._ok()
+        if meth == "POST":
+            self.align[key] = body
+            return self._ok()
+        return self._ok({"value": self.align.get(key)})
+
+    def _eq(self, ident: str, what: str, meth: str, body, request):
+        from ..minidsp.biquad import design
+        m = self._find(ident)
+        if m is None:
+            return self._err("no such measurement", status=404)
+        if what == "equaliser":
+            return self._ok()
+        if what == "filters":
+            if meth == "POST":
+                self.eq_filters[m["uuid"]] = body["filters"]
+                return self._ok()
+            return self._ok(self.eq_filters.get(m["uuid"], []))
+        ppo = int(request.url.params.get("ppo", 96))
+        f0 = m["startFreq"]
+        n = int(np.floor(np.log2(m["endFreq"] / f0) * ppo)) + 1
+        f = f0 * 2.0 ** (np.arange(n) / ppo)
+        h = np.interp(np.log(f), np.log(m["_f"]), 20 * np.log10(np.abs(m["_h"]) + 1e-12))
+        for flt in self.eq_filters.get(m["uuid"], []):
+            bq = design("PK", flt["frequency"], 48000, flt["gaindB"], flt["q"])  # REW evaluates at its own rate
+            h = h + 20 * np.log10(np.abs(bq.response(f, 48000)))
+        return self._ok({"unit": "SPL", "startFreq": f0, "ppo": ppo, "magnitude": encode_floats(h)})
 
 
 class FakeMiniDSP:

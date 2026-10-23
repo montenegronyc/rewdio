@@ -1,12 +1,18 @@
 """Async client for the REW REST API (REW 5.40+, default port 4735).
 
-Payload shapes follow REW's own OpenAPI document (served at /doc.json) and were
-cross-checked against field-tested open-source REW clients.
+Payload shapes follow REW's OpenAPI document (/doc.json) and the field notes of existing REW
+MCP servers (brandon-fryslie/room-eq-wizard-mcp, daredoole/audio-calibration-mcp,
+KevinMeinon/rew-mcp-server, koltyj/REW-mcp; all MIT). Gotchas handled here:
+- /measure/command answers 202 at once even in blocking mode: completion = a new UUID appearing.
+- REW refuses a sweep that follows another too closely ("measurement in progress"): settle after.
+- Settings writes are read back and checked; REW sometimes answers OK and ignores a field.
+- A wedged command is cleared with "Clear command in progress" before giving up.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -14,7 +20,11 @@ from typing import Any
 import httpx
 import numpy as np
 
+from ..config import RewClientSettings
 from .codec import decode_floats, parse_rew_json
+
+SWEEP_SAMPLES = {"128k": 131072, "256k": 262144, "512k": 524288, "1M": 1048576, "2M": 2097152, "4M": 4194304}
+SMOOTHING = ("1/1", "1/2", "1/3", "1/6", "1/12", "1/24", "1/48", "Var", "Psy", "ERB", "None")
 
 
 class RewError(RuntimeError):
@@ -32,21 +42,13 @@ class Spectrum:
 
 
 class RewClient:
-    def __init__(
-        self,
-        base_url: str = "http://127.0.0.1:4735",
-        *,
-        transport: httpx.AsyncBaseTransport | None = None,
-        read_timeout: float = 15.0,
-        command_timeout: float = 180.0,
-        poll_interval: float = 0.5,
-    ):
+    def __init__(self, base_url: str, settings: RewClientSettings, *, transport: httpx.AsyncBaseTransport | None = None):
         self.base_url = base_url.rstrip("/")
-        self._http = httpx.AsyncClient(base_url=self.base_url, transport=transport, timeout=read_timeout)
-        self.command_timeout = command_timeout
-        self.poll_interval = poll_interval
+        self.s = settings
+        self._http = httpx.AsyncClient(base_url=self.base_url, transport=transport, timeout=settings.read_timeout_s)
         self._blocking = False
         self._lock = asyncio.Lock()  # one sweep at a time per REW instance
+        self.sweep_seconds = 6.0  # updated by configure_sweep
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -63,12 +65,10 @@ class RewClient:
         try:
             resp = await self._http.request(method, path, **kwargs)
         except httpx.TransportError as e:
-            raise RewError(
-                f"REW API unreachable at {self.base_url} ({e}). Start REW with -api "
-                "(macOS: open -a REW.app --args -api) or enable it in Preferences > API."
-            ) from e
+            raise RewError(f"REW API unreachable at {self.base_url} ({e}). Start REW with -api "
+                           "(macOS: open -a REW.app --args -api) or enable it in Preferences > API.") from e
         text = resp.text
-        body = None
+        body: Any = None
         if text:
             try:
                 body = parse_rew_json(text)
@@ -78,7 +78,7 @@ class RewClient:
             msg = body.get("message") if isinstance(body, dict) else text
             valid = body.get("validValues") if isinstance(body, dict) else None
             hint = ""
-            if resp.status_code == 403 or (isinstance(msg, str) and "pro" in msg.lower() and path.startswith("/measure")):
+            if path.startswith("/measure") and (resp.status_code in (401, 403) or "pro" in str(msg).lower()):
                 hint = " (API-triggered measurement needs a REW Pro upgrade)"
             extra = f" valid values: {valid}" if valid else ""
             raise RewError(f"REW {method} {path} -> {resp.status_code}: {msg}{hint}{extra}", resp.status_code, valid)
@@ -101,34 +101,45 @@ class RewClient:
             await self.post("/application/blocking", True)
             self._blocking = True
 
+    async def diagnostics(self) -> dict:
+        """REW's own account of what went wrong: last error/warning plus recent lists."""
+        out = {}
+        for key, path in (("last_error", "/application/last-error"), ("last_warning", "/application/last-warning"),
+                          ("errors", "/application/errors"), ("warnings", "/application/warnings")):
+            try:
+                out[key] = await self.get(path)
+            except RewError as e:
+                out[key] = f"unavailable ({e.status})"
+        return out
+
+    async def clear_command(self) -> None:
+        """Recover from a wedged command ('There is already a measurement in progress')."""
+        for path, body in (("/application/command", {"command": "Clear command in progress"}),
+                           ("/measure/command", {"command": "Cancel"})):
+            try:
+                await self.post(path, body)
+            except RewError:
+                pass
+
     # -- application / audio ------------------------------------------------------
 
     async def version(self) -> str:
         v = await self.get("/version")
         return v.get("message", str(v)) if isinstance(v, dict) else str(v)
 
-    async def last_error(self) -> Any:
-        return await self.get("/application/last-error")
-
     async def audio_driver(self) -> str | None:
         d = await self.get("/audio/driver")
         return d.get("driver") if isinstance(d, dict) else d
 
-    async def set_output_channel(self, channel: str) -> None:
-        """Select REW's measurement output channel on whichever driver is active."""
-        driver = (await self.audio_driver() or "").lower()
-        if "asio" in driver:
-            await self.post("/audio/asio/output", {"output": channel})
-        else:
-            await self.post("/audio/java/output-channel", {"channel": channel})
+    async def _driver_prefix(self) -> str:
+        return "/audio/asio" if "asio" in (await self.audio_driver() or "").lower() else "/audio/java"
 
-    async def output_channel(self) -> str | None:
-        driver = (await self.audio_driver() or "").lower()
-        if "asio" in driver:
-            r = await self.get("/audio/asio/output")
-            return r.get("output") if isinstance(r, dict) else r
-        r = await self.get("/audio/java/output-channel")
-        return r.get("channel") if isinstance(r, dict) else r
+    async def set_output_channel(self, channel: str) -> None:
+        prefix = await self._driver_prefix()
+        if prefix.endswith("asio"):
+            await self.post(f"{prefix}/output", {"output": channel})
+        else:
+            await self.post(f"{prefix}/output-channel", {"channel": channel})
 
     async def input_cal(self) -> dict:
         return await self.get("/audio/input-cal") or {}
@@ -143,16 +154,18 @@ class RewClient:
         if sensitivity_dbfs_at_94 is not None:
             cal["dBFSAt94dBSPL"] = sensitivity_dbfs_at_94
         await self.put("/audio/input-cal", {**cfg, "calDataAllInputs": cal})
-        return await self.input_cal()
+        got = await self.input_cal()
+        if (got.get("calDataAllInputs") or {}).get("calFilePath") != cal_file_path:
+            raise RewError(f"REW did not keep the mic cal file {cal_file_path!r}; check the path exists on REW's machine")
+        return got
 
-    async def samplerate(self) -> Any:
-        return await self.get("/audio/samplerate")
+    # -- measurement settings (all read back) --------------------------------------
 
-    # -- measurement settings -----------------------------------------------------
-
-    async def configure_sweep(self, start_hz: int, end_hz: int, length: str) -> None:
+    async def configure_sweep(self, start_hz: int, end_hz: int, length: str, start_delay_s: float, sample_rate: int) -> None:
         await self.post("/measure/sweep/configuration",
                         {"startFrequency": int(start_hz), "endFrequency": int(end_hz), "length": length})
+        await self.post("/measure/start-delay", float(start_delay_s))
+        self.sweep_seconds = SWEEP_SAMPLES.get(length, SWEEP_SAMPLES["1M"]) / sample_rate + start_delay_s
 
     async def set_level(self, dbfs: float) -> None:
         await self.post("/measure/level", {"value": float(dbfs), "unit": "dBFS"})
@@ -167,11 +180,20 @@ class RewClient:
 
     async def set_timing_reference(self, name: str) -> None:
         await self.post("/measure/timing/reference", name)
+        got = await self.timing_reference()
+        if got != name:
+            raise RewError(f"REW timing reference is {got!r} after setting {name!r}")
 
-    async def set_protection(self, max_spl_db: float) -> None:
+    async def set_protection(self, max_spl_db: float) -> dict:
         current = await self.get("/measure/protection-options") or {}
-        await self.post("/measure/protection-options",
-                        {**current, "clippingAbort": True, "splLimitAbort": True, "dBSPLLimit": max_spl_db})
+        want = {"clippingAbort": True, "splLimitAbort": True, "dBSPLLimit": max_spl_db,
+                "warnForLowLevels": False}  # a modal warning would stall an unattended run
+        await self.post("/measure/protection-options", {**current, **want})
+        got = await self.get("/measure/protection-options") or {}
+        bad = [k for k in ("clippingAbort", "splLimitAbort", "dBSPLLimit") if got.get(k) != want[k]]
+        if bad:
+            raise RewError(f"REW did not keep protection settings {bad}: {got}")
+        return got
 
     async def set_name(self, title: str, notes: str | None = None) -> None:
         await self.post("/measure/naming", {"title": title, "namingOption": "Use as entered"})
@@ -184,48 +206,52 @@ class RewClient:
         raw = await self.get("/measurements") or {}
         if isinstance(raw, list):
             return raw
-        out = []
-        for idx, summary in raw.items():
-            out.append({**summary, "index": int(idx)})
-        return sorted(out, key=lambda m: m["index"])
+        return sorted(({**v, "index": int(k)} for k, v in raw.items()), key=lambda m: m["index"])
 
     async def measurement(self, ident: str) -> dict:
         return await self.get(f"/measurements/{ident}")
 
-    async def delete_measurement(self, ident: str) -> None:
-        await self.delete(f"/measurements/{ident}")
+    async def annotate(self, ident: str, title: str, provenance: dict) -> None:
+        """Write provenance JSON into the measurement's notes so a saved .mdat explains itself."""
+        try:
+            await self.put(f"/measurements/{ident}", {"title": title, "notes": json.dumps(provenance)})
+        except RewError:
+            pass  # cosmetic; never fail a calibration over it
 
     async def sweep(self, title: str, notes: str | None = None) -> dict:
-        """Run one SPL sweep and return the new measurement's summary.
-
-        /measure/command answers 202 immediately even in blocking mode, so completion
-        is observed by polling for a new measurement UUID.
-        """
+        """Run one SPL sweep and return the new measurement's summary."""
         async with self._lock:
             await self.ensure_blocking()
             await self.set_name(title, notes)
             before = {m["uuid"] for m in await self.list_measurements()}
-            deadline = time.monotonic() + self.command_timeout
-            await self._request("POST", "/measure/command", json_body={"command": "SPL"}, timeout=self.command_timeout)
+            budget = self.sweep_seconds + self.s.timeout_margin_s
+            deadline = time.monotonic() + budget
+            try:
+                await self._request("POST", "/measure/command", json_body={"command": "SPL"}, timeout=budget)
+            except RewError as e:
+                if "in progress" not in str(e).lower():
+                    raise
+                await self.clear_command()
+                await asyncio.sleep(self.s.settle_s)
+                await self._request("POST", "/measure/command", json_body={"command": "SPL"}, timeout=budget)
             while True:
                 new = [m for m in await self.list_measurements() if m["uuid"] not in before]
                 if new:
+                    await asyncio.sleep(self.s.settle_s)
                     return new[-1]
                 if time.monotonic() > deadline:
-                    err = None
-                    try:
-                        err = await self.last_error()
-                    except RewError:
-                        pass
-                    raise RewError(f"sweep produced no measurement within {self.command_timeout:.0f}s; REW last error: {err}")
-                await asyncio.sleep(self.poll_interval)
+                    raise RewError(f"sweep produced no measurement within {budget:.0f}s; REW says {await self.diagnostics()}")
+                await asyncio.sleep(self.s.poll_interval_s)
 
-    async def frequency_response(self, ident: str, ppo: int = 96, smoothing: str | None = None) -> Spectrum:
+    async def frequency_response(self, ident: str, ppo: int, smoothing: str | None = None) -> Spectrum:
+        if smoothing is not None and smoothing not in SMOOTHING:
+            raise ValueError(f"smoothing must be one of {SMOOTHING} (REW rejects long names)")
         r = await self.get(f"/measurements/{ident}/frequency-response", ppo=ppo, smoothing=smoothing)
         mag = decode_floats(r["magnitude"])
-        start = float(r["startFreq"])
-        if r.get("ppo"):
-            freqs = start * 2.0 ** (np.arange(mag.size) / float(r["ppo"]))
+        start = float(r.get("startFreq", r.get("startFrequency")))
+        step_ppo = r.get("ppo") or r.get("pointsPerOctave")
+        if step_ppo:
+            freqs = start * 2.0 ** (np.arange(mag.size) / float(step_ppo))
         elif r.get("freqStep"):
             freqs = start + np.arange(mag.size) * float(r["freqStep"])
         else:

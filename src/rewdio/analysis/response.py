@@ -7,10 +7,9 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import uniform_filter1d
 
-F_LO, F_HI = 10.0, 20000.0
+OUT_OF_BAND_DB = 60.0  # how far below the edge value to pad outside the swept range (numerical, not tuning)
 
-
-def log_grid(ppo: int = 96, f_lo: float = F_LO, f_hi: float = F_HI) -> np.ndarray:
+def log_grid(ppo: int, f_lo: float, f_hi: float) -> np.ndarray:
     n = int(np.floor(np.log2(f_hi / f_lo) * ppo)) + 1
     return f_lo * 2.0 ** (np.arange(n) / ppo)
 
@@ -40,7 +39,7 @@ class Response:
         if grid is not None:
             lf = np.log(freqs)
             lg = np.log(grid)
-            mag_db = np.interp(lg, lf, mag_db, left=mag_db[0] - 60, right=mag_db[-1] - 60)
+            mag_db = np.interp(lg, lf, mag_db, left=mag_db[0] - OUT_OF_BAND_DB, right=mag_db[-1] - OUT_OF_BAND_DB)
             ph = np.interp(lg, lf, ph)
             freqs = grid
         return cls(freqs=freqs, h=10 ** (mag_db / 20) * np.exp(1j * ph), has_phase=has_phase)
@@ -107,7 +106,7 @@ def band_level_db(resp: Response | np.ndarray, freqs: np.ndarray | None, lo: flo
     return float(10 * np.log10(np.mean(mag[m])))
 
 
-def band_median_db(resp: Response, lo: float, hi: float, smoothing: float = 3) -> float:
+def band_median_db(resp: Response, lo: float, hi: float, smoothing: float) -> float:
     """Robust band level: median of the fractional-octave-smoothed curve (peaks and nulls do not drag it)."""
     m = band(resp.freqs, lo, hi)
     if not m.any():

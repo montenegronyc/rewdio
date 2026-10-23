@@ -1,17 +1,19 @@
-"""A virtual listening room with speakers, a miniDSP and a mic.
+"""A virtual listening room with speakers, a miniDSP and a mic, loaded from a scenario JSON.
 
-Low frequencies come from a rectangular-room modal sum (which is symmetric in
-source and receiver, so the reciprocity crawl behaves as it does in a real
-room). Higher frequencies blend into direct sound plus a deterministic diffuse
-ripple. The DSP has pre-existing crossovers Rewdio does not know about, and
-each speaker has its own unknown latency, so the solvers have real work to do.
+Low frequencies come from a rectangular-room modal sum (symmetric in source and receiver, so
+the reciprocity crawl behaves as it does in a real room). Higher frequencies blend into direct
+sound plus delayed, decaying diffuse reflections. The DSP has pre-existing crossovers Rewdio does
+not know about, and each speaker has its own unknown latency, so the solvers have real work to do.
 """
 
 from __future__ import annotations
 
 import hashlib
 import itertools
+import json
 from dataclasses import dataclass, field
+from importlib import resources
+from pathlib import Path
 
 import numpy as np
 
@@ -23,19 +25,19 @@ P_REF = 20e-6
 
 @dataclass
 class Room:
-    dims: tuple[float, float, float] = (5.8, 4.3, 2.6)
-    rt60: float = 0.45
-    f_max_mode: float = 450.0
+    dims: tuple[float, float, float]
+    rt60: float
+    f_max_mode: float
+    transition_hz: tuple[float, float] = (180.0, 400.0)
+    diffuse_scale: float = 0.5
+    reflections: list[tuple[float, float]] = field(default_factory=lambda: [(2.5, 0.6), (6.0, 0.5), (11.0, 0.4)])
 
     def __post_init__(self):
         L = np.array(self.dims)
         nmax = (2 * self.f_max_mode * L / C).astype(int) + 1
-        modes = []
-        for n in itertools.product(*(range(k + 1) for k in nmax)):
-            fn = C / 2 * np.sqrt(np.sum((np.array(n) / L) ** 2))
-            if 0 < fn <= self.f_max_mode:
-                modes.append(n)
-        self.n = np.array(modes, float)  # modes x 3
+        modes = [n for n in itertools.product(*(range(k + 1) for k in nmax))
+                 if 0 < C / 2 * np.sqrt(np.sum((np.array(n) / L) ** 2)) <= self.f_max_mode]
+        self.n = np.array(modes, float)
         self.fn = C / 2 * np.sqrt(np.sum((self.n / L) ** 2, axis=1))
         self.lam = np.prod(np.where(self.n == 0, 1.0, 0.5), axis=1)
         self.delta = 6.91 / self.rt60
@@ -43,13 +45,11 @@ class Room:
         pts = rng.uniform(0.3, 1.0, (24, 3)) * (L - 0.6) + 0.3
         f = np.linspace(150, 250, 60)
         raw = np.mean([np.mean(np.abs(self._modal(pts[i], pts[i + 1], f)) ** 2) for i in range(0, 24, 2)])
-        rc = self.critical_distance
-        self.kappa = np.sqrt(((1 / 3.0) ** 2 + (1 / rc) ** 2) / raw)
+        self.kappa = np.sqrt(((1 / 3.0) ** 2 + (1 / self.critical_distance) ** 2) / raw)
 
     @property
     def critical_distance(self) -> float:
-        V = np.prod(self.dims)
-        return float(0.057 * np.sqrt(V / self.rt60))
+        return float(0.057 * np.sqrt(np.prod(self.dims) / self.rt60))
 
     def _psi(self, r) -> np.ndarray:
         return np.prod(np.cos(np.pi * self.n * np.asarray(r) / np.array(self.dims)), axis=1)
@@ -66,18 +66,17 @@ class Room:
         r = max(float(np.linalg.norm(np.subtract(src, mic))), 0.05)
         delay = np.exp(-2j * np.pi * f * r / C)
         lf = self.kappa * self._modal(src, mic, f) * delay
-        # diffuse ripple, deterministic per source/mic pair and symmetric in them
         key = hashlib.sha1(repr(sorted([tuple(np.round(src, 2)), tuple(np.round(mic, 2))])).encode()).digest()
-        rng = np.random.default_rng(int.from_bytes(key[:8], "little"))
+        rng = np.random.default_rng(int.from_bytes(key[:8], "little"))  # symmetric in src/mic
         knots = np.geomspace(100, 25000, 160)
         reverb = np.zeros(f.shape, complex)
-        # reflections arrive after the direct sound, spread out and decaying
-        for k, (t_ms, amp) in enumerate([(2.5, 0.6), (6.0, 0.5), (11.0, 0.4), (19.0, 0.35), (32.0, 0.3)]):
+        for t_ms, amp in self.reflections:  # reflections arrive after the direct sound, decaying
             rip = rng.normal(size=knots.size) + 1j * rng.normal(size=knots.size)
             rp = np.interp(np.log(f), np.log(knots), rip.real) + 1j * np.interp(np.log(f), np.log(knots), rip.imag)
             reverb += amp * rp * np.exp(-2j * np.pi * f * (r / C + t_ms / 1000))
-        hf = delay / r + 0.5 * reverb / (np.sqrt(2) * self.critical_distance)
-        x = np.clip((np.log2(f) - np.log2(180)) / (np.log2(400) - np.log2(180)), 0, 1)
+        hf = delay / r + self.diffuse_scale * reverb / (np.sqrt(2) * self.critical_distance)
+        a, b = self.transition_hz
+        x = np.clip((np.log2(f) - np.log2(a)) / (np.log2(b) - np.log2(a)), 0, 1)
         wgt = 0.5 - 0.5 * np.cos(np.pi * x)
         return (1 - wgt) * lf + wgt * hf
 
@@ -88,17 +87,13 @@ class Speaker:
     pos: tuple[float, float, float]
     kind: str  # "main" | "sub"
     dsp_output: int
+    model: list[list]  # [[type, f0, q], ...] driver/box response
     latency_ms: float = 0.0
     sensitivity_db: float = 112.0  # SPL at 1 m for a 0 dBFS drive through unity DSP
 
-    def response(self, f: np.ndarray, fs: float = 96000) -> np.ndarray:
-        if self.kind == "main":
-            h = cascade_response([design("HP", 48, fs, q=0.8)], f, fs)
-            h = h * cascade_response([design("LP", 22000 if fs > 48000 else 20000, fs, q=0.7)], f, fs)
-        else:
-            h = cascade_response([design("HP", 19, fs, q=0.7), design("LP", 180, fs, q=0.6)], f, fs)
-        g = 10 ** (self.sensitivity_db / 20) * P_REF
-        return g * h * np.exp(-2j * np.pi * f * self.latency_ms / 1000)
+    def response(self, f: np.ndarray, fs: float) -> np.ndarray:
+        h = cascade_response([design(k, min(f0, fs * 0.45), fs, q=q) for k, f0, q in self.model], f, fs)
+        return 10 ** (self.sensitivity_db / 20) * P_REF * h * np.exp(-2j * np.pi * f * self.latency_ms / 1000)
 
 
 @dataclass
@@ -138,25 +133,22 @@ class World:
             return (0.0, 1.0)
         return (1.0, 1.0)
 
-    def response(self, f: np.ndarray, level_dbfs: float, rew_output: str | None = None,
-                 noise: bool = True) -> np.ndarray:
+    def response(self, f: np.ndarray, level_dbfs: float, rew_output: str | None = None, noise: bool = True) -> np.ndarray:
         f = np.asarray(f, float)
         drv = self.drive(rew_output)
         total = np.zeros(f.shape, complex)
         for spk in self.speakers:
             out = self.dsp[spk.dsp_output]
-            if out.mute:
-                continue
             mix = out.routing[0] * drv[0] + out.routing[1] * drv[1]
-            if mix == 0:
+            if out.mute or mix == 0:
                 continue
             total += mix * out.transfer(f, self.fs) * spk.response(f, self.fs) * self.room.transfer(spk.pos, self.mic, f)
         total *= 10 ** ((level_dbfs + self.master_volume_db) / 20)
         if noise:
             self.seed += 1
             rng = np.random.default_rng(self.seed)
-            n = (rng.normal(size=f.size) + 1j * rng.normal(size=f.size)) * P_REF * 10 ** (self.noise_floor_spl / 20) / np.sqrt(2)
-            total = total + n
+            n = rng.normal(size=f.size) + 1j * rng.normal(size=f.size)
+            total = total + n * P_REF * 10 ** (self.noise_floor_spl / 20) / np.sqrt(2)
         return total
 
     def speaker(self, role: str) -> Speaker:
@@ -166,21 +158,28 @@ class World:
         raise KeyError(role)
 
 
-def default_world(fs: int = 96000) -> World:
-    """A 5.8 x 4.3 x 2.6 m room, stereo mains, two subs badly placed in one corner area."""
-    room = Room()
-    mlp = (3.6, 2.15, 1.1)
-    speakers = [
-        Speaker("L", (0.7, 1.05, 1.0), "main", 0, latency_ms=0.0),
-        Speaker("R", (0.75, 3.30, 1.0), "main", 1, latency_ms=0.0),
-        Speaker("SUB1", (0.35, 0.40, 0.25), "sub", 2, latency_ms=1.8, sensitivity_db=118.0),  # unknown latency
-        Speaker("SUB2", (0.35, 1.30, 0.25), "sub", 3, latency_ms=1.8, sensitivity_db=118.0),
-    ]
-    xo = 80.0
-    dsp = {
-        0: DspOutput(routing=(1.0, 0.0), xover=linkwitz_riley4("HP", xo, fs)),
-        1: DspOutput(routing=(0.0, 1.0), xover=linkwitz_riley4("HP", xo, fs)),
-        2: DspOutput(routing=(0.5, 0.5), xover=linkwitz_riley4("LP", xo, fs), gain_db=-4.0, invert=True),
-        3: DspOutput(routing=(0.5, 0.5), xover=linkwitz_riley4("LP", xo, fs), gain_db=3.0, delay_ms=2.0),
-    }
-    return World(room=room, speakers=speakers, dsp=dsp, mic=mlp, seats={"MLP": mlp, "SEAT2": (3.6, 1.45, 1.1)}, fs=fs)
+def load_world(path: str | Path | None = None) -> World:
+    """Build a World from a scenario JSON (default: the packaged scenarios/default.json)."""
+    if path is None:
+        raw = json.loads(resources.files("rewdio.sim").joinpath("scenarios/default.json").read_text())
+    else:
+        raw = json.loads(Path(path).expanduser().read_text())
+    fs = raw["fs"]
+    r = raw["room"]
+    room = Room(tuple(r["dims"]), r["rt60"], r["f_max_mode"], tuple(r["transition_hz"]), r["diffuse_scale"],
+                [tuple(x) for x in r["reflections"]])
+    models = raw["speaker_models"]
+    speakers = [Speaker(s["role"], tuple(s["pos"]), s["kind"], s["dsp_output"], s.get("model", models[s["kind"]]),
+                        s.get("latency_ms", 0.0), s.get("sensitivity_db", 112.0)) for s in raw["speakers"]]
+    dsp = {}
+    for d in raw["dsp"]:
+        xo = linkwitz_riley4(d["xover"][0], d["xover"][1], fs) if d.get("xover") else []
+        dsp[d["index"]] = DspOutput(gain_db=d.get("gain_db", 0.0), delay_ms=d.get("delay_ms", 0.0),
+                                    invert=d.get("invert", False), routing=tuple(d["routing"]), xover=xo)
+    seats = {k: tuple(v) for k, v in raw["seats"].items()}
+    mic = seats[raw["mic"]] if isinstance(raw["mic"], str) else tuple(raw["mic"])
+    return World(room, speakers, dsp, mic, seats, fs, noise_floor_spl=raw["noise_floor_spl"], clip_spl=raw["clip_spl"])
+
+
+def default_world(fs: int | None = None) -> World:
+    return load_world()
