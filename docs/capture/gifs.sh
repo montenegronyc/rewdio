@@ -9,3 +9,7 @@ for name in crawl ab; do
     "fps=12,scale=$width:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=48:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" \
     "$out/$prefix$name.gif"
 done
+# README banner: the waterfall alone, with the empty headroom above the back slices trimmed
+if [ -f "$cap/${prefix}waterfall-plot.png" ]; then
+  ffmpeg -loglevel error -y -i "$cap/${prefix}waterfall-plot.png" -vf "crop=iw:ih*0.7:0:ih*0.3" "$out/waterfall-plot.png"
+fi

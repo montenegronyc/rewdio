@@ -70,6 +70,7 @@ await page.getByRole("button", { name: "Waterfall" }).click();
 await page.waitForSelector(".waterfall svg");
 await page.waitForTimeout(600);
 await shot(page, "waterfall");
+await page.locator(".waterfall").screenshot({ path: `${out}/${prefix}waterfall-plot.png` });
 
 await recorded("ab", async (p) => {
   await p.getByRole("button", { name: "Setups" }).click();
