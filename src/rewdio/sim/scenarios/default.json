@@ -1,0 +1,27 @@
+{
+  "description": "5.8 x 4.3 x 2.6 m room, stereo mains, two subs bunched in the front-left corner with unknown latency",
+  "fs": 96000,
+  "room": {"dims": [5.8, 4.3, 2.6], "rt60": 0.45, "f_max_mode": 450.0,
+           "transition_hz": [180.0, 400.0], "diffuse_scale": 0.5,
+           "reflections": [[2.5, 0.6], [6.0, 0.5], [11.0, 0.4], [19.0, 0.35], [32.0, 0.3]]},
+  "seats": {"MLP": [3.6, 2.15, 1.1], "SEAT2": [3.6, 1.45, 1.1]},
+  "mic": "MLP",
+  "noise_floor_spl": 30.0,
+  "clip_spl": 118.0,
+  "speakers": [
+    {"role": "L", "pos": [0.7, 1.05, 1.0], "kind": "main", "dsp_output": 0, "latency_ms": 0.0, "sensitivity_db": 112.0},
+    {"role": "R", "pos": [0.75, 3.30, 1.0], "kind": "main", "dsp_output": 1, "latency_ms": 0.0, "sensitivity_db": 112.0},
+    {"role": "SUB1", "pos": [0.35, 0.40, 0.25], "kind": "sub", "dsp_output": 2, "latency_ms": 1.8, "sensitivity_db": 118.0},
+    {"role": "SUB2", "pos": [0.35, 1.30, 0.25], "kind": "sub", "dsp_output": 3, "latency_ms": 1.8, "sensitivity_db": 118.0}
+  ],
+  "speaker_models": {
+    "main": [["HP", 48.0, 0.8], ["LP", 22000.0, 0.7]],
+    "sub": [["HP", 19.0, 0.7], ["LP", 180.0, 0.6]]
+  },
+  "dsp": [
+    {"index": 0, "routing": [1.0, 0.0], "xover": ["HP", 80.0]},
+    {"index": 1, "routing": [0.0, 1.0], "xover": ["HP", 80.0]},
+    {"index": 2, "routing": [0.5, 0.5], "xover": ["LP", 80.0], "gain_db": -4.0, "invert": true},
+    {"index": 3, "routing": [0.5, 0.5], "xover": ["LP", 80.0], "gain_db": 3.0, "delay_ms": 2.0}
+  ]
+}

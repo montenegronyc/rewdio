@@ -1,0 +1,253 @@
+{
+  "rew_url": "http://127.0.0.1:4735",
+  "minidsp_url": "unix:///tmp/minidsp.sock",
+  "minidsp_device_index": 0,
+  "dsp_sample_rate": 96000,
+  "dsp_max_delay_ms": 8.0,
+  "dsp_gain_range_db": [
+    -72.0,
+    12.0
+  ],
+  "peq_slots": [
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "channels": [
+    {
+      "role": "L",
+      "kind": "main",
+      "dsp_output": 0,
+      "rew_output_channel": null
+    },
+    {
+      "role": "R",
+      "kind": "main",
+      "dsp_output": 1,
+      "rew_output_channel": null
+    },
+    {
+      "role": "SUB1",
+      "kind": "sub",
+      "dsp_output": 2,
+      "rew_output_channel": null
+    },
+    {
+      "role": "SUB2",
+      "kind": "sub",
+      "dsp_output": 3,
+      "rew_output_channel": null
+    }
+  ],
+  "baseline": {
+    "gain_db": 0.0,
+    "delay_ms": 0.0,
+    "invert": false
+  },
+  "crossover_hz": 80.0,
+  "timing_mode": "sum_fit",
+  "timing_reference_channel": "L",
+  "mic_positions": [
+    "MLP"
+  ],
+  "do_sub_crawl": false,
+  "crawl_positions": 8,
+  "room_dims_m": null,
+  "seat_xyz": {},
+  "mic_cal_path": null,
+  "mic_sensitivity_dbfs": null,
+  "max_sub_gain_db": 6.0,
+  "allow_peq": true,
+  "max_peq_boost_db": 3.0,
+  "analysis_ppo": 96,
+  "sim_scenario": null,
+  "target": {
+    "bass_boost_db": 4.0,
+    "shelf_hz": 70.0,
+    "shelf_octaves": 1.5,
+    "house_curve_path": null
+  },
+  "convergence": {
+    "lr_level_tolerance_db": 0.5,
+    "min_crossover_efficiency_db": -1.0,
+    "max_bass_deviation_db": 3.0,
+    "max_prediction_error_db": 1.5,
+    "max_iterations": 4,
+    "plateau_improvement_db": 0.15
+  },
+  "sweep": {
+    "start_hz": 10,
+    "end_hz": 20000,
+    "length": "256k",
+    "level_dbfs": -36.0,
+    "min_level_dbfs": -50.0,
+    "max_level_dbfs": -6.0,
+    "target_spl_db": 80.0,
+    "max_spl_db": 100.0,
+    "min_snr_db": 40.0,
+    "start_delay_s": 0.0,
+    "rew_sample_rate": 48000
+  },
+  "rew_client": {
+    "read_timeout_s": 15.0,
+    "command_timeout_s": 180.0,
+    "poll_interval_s": 0.5,
+    "settle_s": 2.0,
+    "timeout_margin_s": 60.0
+  },
+  "tuning": {
+    "physics": {
+      "speed_of_sound_m_s": 343.0
+    },
+    "grid": {
+      "f_lo_hz": 10.0,
+      "f_hi_hz": 20000.0
+    },
+    "bands": {
+      "mains_level_hz": [
+        500.0,
+        2000.0
+      ],
+      "bass_eval_hz": [
+        20.0,
+        200.0
+      ],
+      "bass_smoothing": 6,
+      "level_smoothing": 3,
+      "sub_level_lo_hz": 25.0,
+      "sub_level_xo_factor": 0.8,
+      "crossover_span_factor": 2.0,
+      "sub_pair_lo_hz": 20.0,
+      "sub_pair_xo_factor": 1.5,
+      "sub_pair_max_hz": 200.0,
+      "peq_lo_hz": 18.0,
+      "peq_xo_factor": 1.1,
+      "peq_max_hz": 200.0,
+      "sumfit_mains_hz": [
+        150.0,
+        3000.0
+      ],
+      "crawl_eval_hz": [
+        20.0,
+        120.0
+      ],
+      "prediction_check_hz": [
+        20.0,
+        500.0
+      ],
+      "summary_peaks_hz": [
+        15.0,
+        300.0
+      ]
+    },
+    "alignment": {
+      "delay_step_ms": 0.02,
+      "tie_tolerance_db": 0.003,
+      "sumfit_max_ms": 100.0,
+      "sumfit_step_ms": 0.05,
+      "sumfit_confident_residual_db": 1.5,
+      "sumfit_confident_margin_db": 0.5,
+      "arrival_f_hi_hz": 6000.0,
+      "arrival_onset_fraction": 0.5,
+      "arrival_hp_hz": 200.0
+    },
+    "pair": {
+      "gain_range_db": 6.0,
+      "smoothing": 6,
+      "spread_weight": 0.5,
+      "loss_weight": 0.3,
+      "coarse_delay_step_ms": 0.25,
+      "coarse_gain_step_db": 1.0,
+      "fine_delay_step_ms": 0.05,
+      "fine_gain_step_db": 0.25,
+      "delay_tie_penalty_per_ms": 0.02,
+      "gain_tie_penalty_per_db": 0.005
+    },
+    "peq": {
+      "max_cut_db": 12.0,
+      "smoothing": 12,
+      "spread_limit_db": 4.0,
+      "dip_weight": 0.5,
+      "min_q": 0.5,
+      "max_q": 12.0,
+      "start_q": 4.0,
+      "min_gain_db": 0.5,
+      "min_improvement_db": 0.1,
+      "stop_error_db": 1.0,
+      "max_nfev": 200
+    },
+    "gain_staging": {
+      "tolerance_db": 2.0,
+      "max_steps": 8,
+      "max_step_up_db": 10.0,
+      "max_step_down_db": 20.0,
+      "abort_backoff_db": 10.0,
+      "peak_margin_db": 3.0
+    },
+    "crawl": {
+      "wall_distance_m": 0.35,
+      "mic_height_m": 0.25,
+      "top_pairs": 5
+    },
+    "autopilot": {
+      "max_sweeps_per_step": 60,
+      "sumfit_probe_fraction_of_period": 0.25
+    },
+    "quality": {
+      "min_snr_db_critical": 20.0,
+      "min_snr_db_warning": 35.0,
+      "silent_channel_margin_db": 25.0,
+      "max_start_hz": 20.0,
+      "repeat_check": true,
+      "repeat_band_hz": [
+        20.0,
+        300.0
+      ],
+      "max_repeat_std_db": 1.5
+    },
+    "diagnostics": {
+      "mode_max_hz": 200.0,
+      "mode_match_tolerance": 0.05,
+      "sbir_band_hz": [
+        60.0,
+        300.0
+      ],
+      "sbir_min_q": 5.0,
+      "seat_spread_flag_db": 8.0,
+      "seat_outlier_db": 6.0,
+      "seat_band_hz": [
+        20.0,
+        300.0
+      ],
+      "seat_smoothing": 12
+    },
+    "preflight": {
+      "input_level_listen_s": 1.0,
+      "require_live_mic": true
+    },
+    "crosscheck": {
+      "enabled": true,
+      "alignment_disagree_ms": 0.3,
+      "peq_disagree_db": 0.5,
+      "rew_equaliser": {
+        "manufacturer": "MiniDSP",
+        "model": "2x4 HD"
+      }
+    }
+  },
+  "dashboard": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8765,
+    "refresh_ms": 1500,
+    "log_lines": 200,
+    "chart_hz": [
+      15.0,
+      500.0
+    ],
+    "chart_ppo": 24,
+    "chart_smoothing": 6
+  }
+}

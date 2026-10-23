@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rewdio Live</title>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Rewdio</h1>
+    <span id="phase" class="pill">…</span>
+    <span id="status" class="pill muted"></span>
+    <button id="theme" class="ghost" type="button">Theme</button>
+  </header>
+  <main>
+    <section id="action" class="card action" hidden>
+      <h2>Waiting on you</h2>
+      <p id="action-text"></p>
+    </section>
+    <section class="grid">
+      <div class="card"><h2>Bass deviation</h2><p class="big" id="m-dev">–</p><p class="muted" id="m-dev-sub"></p></div>
+      <div class="card"><h2>Crossover summation</h2><p class="big" id="m-xo">–</p><p class="muted">0 dB = perfect</p></div>
+      <div class="card"><h2>Model vs room</h2><p class="big" id="m-pred">–</p><p class="muted">prediction error</p></div>
+      <div class="card"><h2>Sweeps</h2><p class="big" id="m-sweeps">–</p><p class="muted" id="m-pass"></p></div>
+    </section>
+    <section class="card">
+      <div class="row"><h2>Response</h2><select id="pos" aria-label="Mic position"></select></div>
+      <div id="chart" class="chart" role="img" aria-label="Frequency response chart"></div>
+      <div class="legend">
+        <span class="sw measured"></span>Measured <span class="sw predicted"></span>Predicted
+        <span class="sw target"></span>Target
+      </div>
+    </section>
+    <section class="grid two">
+      <div class="card"><h2>miniDSP</h2><table id="dsp"></table></div>
+      <div class="card"><h2>Checks</h2><ul id="checks" class="list"></ul></div>
+    </section>
+    <section class="grid two">
+      <div class="card"><h2>What it did</h2><ul id="notes" class="list"></ul></div>
+      <div class="card"><h2>Log</h2><pre id="log"></pre></div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
