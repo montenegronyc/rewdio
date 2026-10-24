@@ -415,6 +415,7 @@ and loopback mode, plus a ground-truth check that the reciprocity ranking matche
 the subs. See [docs/PLAN.md](docs/PLAN.md) for the design and
 [docs/COMPARISON.md](docs/COMPARISON.md) for how Rewdio compares with every other REW MCP server.
 [docs/research/polycam.md](docs/research/polycam.md) evaluates importing a Polycam/RoomPlan room scan.
+[docs/case-study](docs/case-study/index.html) is the portfolio case study, with the Squarespace copy, GIFs and thumbnails.
 
 Every module is kept under 500 lines, and a test enforces it.
 
