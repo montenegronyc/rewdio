@@ -115,3 +115,36 @@ def vituix_name(speaker: str, driver: str, plane: str, angle: float) -> str:
     a = int(round(angle))
     a = ((a + 180) % 360) - 180 if a != 180 else 180
     return f"{speaker}_{driver} {plane} {a}.frd"
+
+
+def stable_band(ir: np.ndarray, fs: float, freqs: np.ndarray, t_ref_s: float, gate: Gate, t0_s: float = 0.0,
+                extend_ms: tuple[float, ...] = (1.0, 2.0), tol_db: float = 0.5,
+                smoothing: float = 12.0) -> tuple[float, float] | None:
+    """Gate check instead of the 1/T rule of thumb: the data is good where the impulse has died out inside
+    the gate. Re-gate with the end moved later by each of `extend_ms`; where the (1/`smoothing` octave)
+    magnitude moves by no more than `tol_db`, nothing that matters was still arriving at the gate end.
+    Returns the widest contiguous such band (lo, hi) in Hz, or None if there is none or the impulse is too
+    short to extend the gate."""
+    from .response import smooth_db
+    f = np.asarray(freqs, float)
+    mags = []
+    for extra in (0.0, *extend_ms):
+        g = Gate(gate.pre_ms, gate.gate_ms + extra, gate.taper_ms)
+        try:
+            h = gated_response(ir, fs, f, t_ref_s, g, t0_s=t0_s)
+        except ValueError:
+            return None
+        mags.append(smooth_db(f, 20 * np.log10(np.maximum(np.abs(h), 1e-12)), smoothing))
+    dev = np.max([np.abs(m - mags[0]) for m in mags[1:]], axis=0)
+    ok = dev <= tol_db
+    best, start = (0, -1, -1), None
+    for i, v in enumerate([*ok, False]):
+        if v and start is None:
+            start = i
+        elif not v and start is not None:
+            if i - start > best[0]:
+                best = (i - start, start, i - 1)
+            start = None
+    if best[0] < 2:
+        return None
+    return float(f[best[1]]), float(f[best[2]])
