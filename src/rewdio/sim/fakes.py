@@ -104,10 +104,39 @@ class FakeRew:
             "_ir": ir,
             "uuid": str(uuidlib.uuid4()), "title": self.next_title, "notes": self.next_notes,
             "startFreq": f0, "endFreq": f1, "timingReference": t_ref or "None",
-            "signalToNoisedB": round(snr, 1), "_f": f, "_h": h,
+            "signalToNoisedB": round(snr, 1), "_f": f, "_h": h, "_level": self.level_dbfs,
         }
         self.measurements.append(m)
         return self._ok({"message": "Measurement started"}, status=202)
+
+    def _impedance(self):
+        """A driver on an impedance jig: Re + voice-coil inductance + the motional resonance."""
+        out = next((o for o, d in sorted(self.world.dsp.items()) if not d.mute), 0)
+        spk = next((s for s in self.world.speakers if s.dsp_output == out), None)
+        fs_res = float(spk.model[0][1]) if spk and spk.model and spk.model[0][0] == "HP" else 50.0
+        re_, le, rms, q = 6.0, 0.05e-3, 30.0, 4.0
+
+        def z(f):
+            f = np.asarray(f, float)
+            return re_ + 2j * np.pi * f * le + rms / (1 + 1j * q * (f / fs_res - fs_res / f))
+        m = {"uuid": str(uuidlib.uuid4()), "title": self.next_title, "notes": self.next_notes,
+             "startFreq": 10.0, "endFreq": 20000.0, "timingReference": "None", "_z": z, "_fs_res": fs_res}
+        self.measurements.append(m)
+        return self._ok({"message": "Measurement started"}, status=202)
+
+    def _distortion(self, m: dict, ppo: int) -> dict:
+        """Harmonics that rise with level and towards the bottom of the band, like a real driver."""
+        f0 = max(m["startFreq"], 20.0)
+        f = f0 * 2.0 ** (np.arange(int(np.log2(m["endFreq"] / f0) * ppo) + 1) / ppo)
+        fund = np.interp(np.log(f), np.log(m["_f"]), 20 * np.log10(np.abs(m["_h"]) + 1e-12))
+        drive = 10 ** ((m.get("_level", -20.0) + 20.0) / 20)  # 1.0 at -20 dBFS
+        low = 1 + (np.maximum(f0, 200.0) * 2 / f) ** 2
+        h2, h3 = 0.3 * drive * low, 0.1 * drive ** 2 * low
+        thd = np.sqrt(h2 ** 2 + h3 ** 2)
+        rows = [[float(a), float(b), float(c), 0.01, float(d), float(e)] for a, b, c, d, e in zip(f, fund, thd, h2, h3)]
+        rows[-1] = rows[-1][:5]  # REW's rows can be ragged where a harmonic is above the band
+        return {"columnHeaders": ["Freq (Hz)", "Fundamental (dB)", "THD (%)", "Noise (%)", "H2 (%)", "H3 (%)"],
+                "data": rows}
 
     def _summary(self, m: dict) -> dict:
         return {k: v for k, v in m.items() if not k.startswith("_")}
@@ -210,8 +239,10 @@ class FakeRew:
             self.next_notes = body if isinstance(body, str) else ""
             return self._ok()
         if p == "/measure/command":
+            if body.get("command") == "Impedance":
+                return self._impedance()
             if body.get("command") != "SPL":
-                return self._err("unsupported in simulator", valid=["SPL"])
+                return self._err("unsupported in simulator", valid=["SPL", "Impedance"])
             if self.fail_measures > 0:
                 self.fail_measures -= 1
                 return self._err("simulated sweep failure", status=500)
@@ -221,6 +252,12 @@ class FakeRew:
                 self.measurements.clear()
                 return self._ok()
             return self._ok({str(i + 1): self._summary(m) for i, m in enumerate(self.measurements)})
+        mm = re.fullmatch(r"/measurements/([^/]+)/distortion", p)
+        if mm:
+            m = self._find(mm.group(1))
+            if m is None or m.get("_z") is not None:
+                return self._err("no distortion data", status=404)
+            return self._ok(self._distortion(m, int(request.url.params.get("ppo", 12))))
         mm = re.fullmatch(r"/measurements/([^/]+)/impulse-response", p)
         if mm:
             m = self._find(mm.group(1))
@@ -232,6 +269,12 @@ class FakeRew:
             m = self._find(mm.group(1))
             if m is None:
                 return self._err("no such measurement", status=404)
+            if mm.group(2) and m.get("_z") is not None:  # impedance: magnitude in ohms
+                ppo = int(request.url.params.get("ppo", 96))
+                f = 10.0 * 2.0 ** (np.arange(int(np.log2(20000 / 10.0) * ppo) + 1) / ppo)
+                z = m["_z"](f)
+                return self._ok({"unit": "ohm", "smoothing": "None", "startFreq": 10.0, "ppo": ppo,
+                                 "magnitude": encode_floats(np.abs(z)), "phase": encode_floats(np.rad2deg(np.angle(z)))})
             if mm.group(2):
                 ppo = int(request.url.params.get("ppo", 96))
                 f0 = m["startFreq"]

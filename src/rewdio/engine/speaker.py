@@ -29,6 +29,7 @@ from ..config import ChannelKind
 from ..minidsp.biquad import cascade_response
 from ..minidsp.state import XoverFilter, xover_sections
 from .rig import Rig
+from .speaker_extras import Distortion, Impedance, PassiveExtras
 from .speaker_meta import ANGLE_CONVENTION, FRAME, AnglePlan, Environment, Geometry, now_et, set_folder
 from .store import Session
 
@@ -52,26 +53,6 @@ class Nearfield(BaseModel):
     driver: str
     label: str
     id: str
-
-
-class Impedance(BaseModel):
-    driver: str
-    id: str
-    source: str  # "api" (Rewdio triggered it) or "imported" (taken in REW's GUI)
-    series_cap_uf: float | None = None
-    cap_in_circuit: bool | None = None
-    note: str | None = None
-
-
-class Distortion(BaseModel):
-    driver: str
-    id: str
-    target_spl_db: float
-    measured_spl_db: float
-    ref_hz: float
-    distance_m: float | None
-    level_dbfs: float
-    band_hz: tuple[float, float]
 
 
 class SpeakerState(BaseModel):
@@ -123,7 +104,7 @@ def points_from(plan: AnglePlan) -> list[Point]:
     return pts
 
 
-class SpeakerCapture:
+class SpeakerCapture(PassiveExtras):
     FILE = "speaker.json"
 
     def __init__(self, rig: Rig):
@@ -375,12 +356,6 @@ class SpeakerCapture:
         return {"ok": True, "dir": str(out), "files": len(files), "nearfield": len(nf_entries), "zma": len(zma),
                 "distortion": len(dist), "manifest": str(mpath), "t_ref_ms": round(t_ref_s * 1000, 4),
                 "notes": notes}
-
-    def _export_zma(self, st: SpeakerState, out: Path) -> list[dict]:
-        return []
-
-    def _export_distortion(self, st: SpeakerState, out: Path) -> list[dict]:
-        return []
 
     def report(self, gate: Gate | None = None, band_hz: tuple[float, float] = (300.0, 10000.0),
                ppo: int = 24) -> dict:

@@ -224,8 +224,9 @@ class RewClient:
         except RewError:
             pass  # cosmetic; never fail a calibration over it
 
-    async def sweep(self, title: str, notes: str | None = None) -> dict:
-        """Run one SPL sweep and return the new measurement's summary."""
+    async def sweep(self, title: str, notes: str | None = None, command: str = "SPL") -> dict:
+        """Run one sweep (`command` "SPL", or "Impedance" with an impedance jig) and return the new
+        measurement's summary."""
         async with self._lock:
             await self.ensure_blocking()
             await self.set_name(title, notes)
@@ -233,13 +234,13 @@ class RewClient:
             budget = self.sweep_seconds + self.s.timeout_margin_s
             deadline = time.monotonic() + budget
             try:
-                await self._request("POST", "/measure/command", json_body={"command": "SPL"}, timeout=budget)
+                await self._request("POST", "/measure/command", json_body={"command": command}, timeout=budget)
             except RewError as e:
                 if "in progress" not in str(e).lower():
                     raise
                 await self.clear_command()
                 await asyncio.sleep(self.s.settle_s)
-                await self._request("POST", "/measure/command", json_body={"command": "SPL"}, timeout=budget)
+                await self._request("POST", "/measure/command", json_body={"command": command}, timeout=budget)
             while True:
                 new = [m for m in await self.list_measurements() if m["uuid"] not in before]
                 if new:
@@ -253,6 +254,10 @@ class RewClient:
         if smoothing is not None and smoothing not in SMOOTHING:
             raise ValueError(f"smoothing must be one of {SMOOTHING} (REW rejects long names)")
         r = await self.get(f"/measurements/{ident}/frequency-response", ppo=ppo, smoothing=smoothing)
+        return self._spectrum(r)
+
+    @staticmethod
+    def _spectrum(r: dict) -> Spectrum:
         mag = decode_floats(r["magnitude"])
         start = float(r.get("startFreq", r.get("startFrequency")))
         step_ppo = r.get("ppo") or r.get("pointsPerOctave")
@@ -264,6 +269,23 @@ class RewClient:
             raise RewError("frequency response has neither ppo nor freqStep")
         phase = decode_floats(r["phase"]) if r.get("phase") else None
         return Spectrum(freqs=freqs, mag_db=mag, phase_deg=phase)
+
+    async def impedance(self, ident: str, ppo: int = 48) -> Spectrum:
+        """An impedance measurement's curve: `mag_db` holds OHMS here (not dB), `phase_deg` degrees.
+        Refuses a measurement that is not in ohms, so an SPL sweep can never be exported as a ZMA."""
+        r = await self.get(f"/measurements/{ident}/frequency-response", ppo=ppo)
+        unit = str(r.get("unit", ""))
+        if "ohm" not in unit.lower() and "\u03a9" not in unit:
+            raise RewError(f"measurement {ident} is not an impedance measurement (unit {unit!r})")
+        return self._spectrum(r)
+
+    async def distortion(self, ident: str, ppo: int = 12, unit: str = "percent") -> tuple[list[str], list[list]]:
+        """Harmonic distortion of a sweep: REW's column headers (e.g. 'Freq (Hz)', 'Fundamental (dB)',
+        'THD (%)', 'Noise (%)', 'H2 (%)'...) and its rows, which may be ragged (missing high harmonics)."""
+        r = await self.get(f"/measurements/{ident}/distortion", unit=unit, ppo=ppo)
+        if not isinstance(r, dict) or not r.get("columnHeaders"):
+            raise RewError(f"REW returned no distortion data for {ident}: {r}")
+        return list(r["columnHeaders"]), list(r.get("data") or [])
 
     async def impulse_response(self, ident: str) -> tuple[np.ndarray, float]:
         """Raw (unwindowed, unnormalised) impulse response and its sample rate."""

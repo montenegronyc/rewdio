@@ -67,8 +67,27 @@ Then, from Claude:
 5. `speaker_report`: spinorama curves and targets for the measured drivers through the configured
    crossover.
 
-ZMA files are not produced: with active filters on the miniDSP, VituixCAD does not need driver
-impedance. Add them only if a passive version is ever on the table.
+### SoundSible handoff (manifest `rewdio.speaker-session/2`)
+
+The final crossover is passive, so SoundSible also needs impedance and distortion, and enough
+geometry to simulate the exact setup. Agreed on the `inbox` branch (`DECISIONS.md`):
+
+- `speaker_plan(..., variant="offset10_riser40", preset="soundsible", geometry={...}, environment={...})`.
+  Geometry uses SoundSible's frame (x forward, y to the speaker's left, z up, origin at the top-front
+  centre of the woofer box, metres): `pivot_xyz` (default: the origin), `mic_xyz` or
+  `mic_distance_m` + `mic_height_m` + `origin_height_m`, `riser_h`, `horn_offset_m`,
+  `horn_stem_lift_m`, `horn_id` (a SoundSible variant key or `stock:<name>`), `horn_stl`,
+  `series_cap_uf`, `series_cap_in_circuit`. Environment: `temperature_c`, `indoor`, `site`,
+  `soundsible_commit`; the start time is recorded in ET.
+- Vertical plane: the speaker lies on its right side on the same pivot; positive `ver` = above the axis.
+- `speaker_impedance(driver, series_cap_uf=..., cap_in_circuit=False)`: mounted ZMA on a jig. If REW
+  refuses an impedance sweep over its API, take it in REW's GUI and pass `rew_measurement_id`.
+- `speaker_distortion(driver, spl_db=[85, 95])`: H2/H3/THD at each SPL at the mic (seat: 1.778 m).
+  Targets within 3 dB of REW's SPL abort limit (`sweep.max_spl_db`) are refused.
+- Gate check: each FRD reports the band that stays within 0.5 dB when the gate end moves +1/+2 ms
+  (`valid_band_hz`), beside the 1/T floor. The ground bounce is checked against the gate.
+- `export_frd(root=...)` writes `<root>/measurements/<date>_<site>_<variant>/`: the manifest at the
+  top, `frd/<driver>/`, `zma/`, `distortion/`.
 
 ## Hardware: is the 2x4HD enough?
 

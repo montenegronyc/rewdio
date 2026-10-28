@@ -337,6 +337,35 @@ async def speaker_nearfield(driver: str, label: str = "nf") -> dict:
 
 
 @mcp.tool()
+async def speaker_impedance(driver: str, rew_measurement_id: str | None = None, series_cap_uf: float | None = None,
+                            cap_in_circuit: bool = False) -> dict:
+    """Mounted impedance of one driver on an impedance jig, exported as zma/<speaker>_<driver>.zma
+    (freq ohm phase). Rewdio tries REW's API impedance sweep; if REW refuses, the user takes it in REW's
+    GUI and you pass that measurement's id. cap_in_circuit: the horn's series protection capacitor
+    (default False: the passive design wants the driver alone)."""
+    rt = runtime()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return _clean(await rt.speaker.impedance(driver, rew_measurement_id, series_cap_uf, cap_in_circuit))
+
+
+@mcp.tool()
+async def speaker_distortion(driver: str, spl_db: list[float], ref_hz: float = 1000.0,
+                             band_lo_hz: float | None = None, band_hi_hz: float | None = None) -> dict:
+    """Harmonic distortion (H2, H3, THD...) of one driver at each target SPL, measured at ref_hz at the mic
+    (SoundSible's seat is 1.778 m; closer is fine, the distance is recorded). Raw with its protection
+    filter kept. Default band: horn 400 Hz..20 kHz, woofer 200 Hz..6 kHz. Targets within 3 dB of
+    REW's SPL abort limit are refused. Exported as distortion/<speaker>_<driver>_<spl>dB.csv."""
+    rt = runtime()
+    band = (band_lo_hz, band_hi_hz) if band_lo_hz is not None and band_hi_hz is not None else None
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return _clean(await rt.speaker.distortion(driver, spl_db, ref_hz, band))
+
+
+@mcp.tool()
 async def export_frd(out_dir: str | None = None, gate_ms: float = 5.0, pre_ms: float = 1.0,
                      ppo: int = 48, root: str | None = None) -> dict:
     """Write the captured set: <root>/measurements/<date>_<site>_<variant>/ (root defaults to REWDIO_HOME;
