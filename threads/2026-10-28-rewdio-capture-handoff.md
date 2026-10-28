@@ -168,3 +168,13 @@ A9 (Q9) Two different capacitors, so two answers:
   tried (about 350 Hz with the current 700 Hz floor): C = 1 / (2 pi f |Z(f)|), with |Z| read from the
   measured ZMA at that frequency rather than the nominal rating. SoundSible does not compute it today; it
   can, from the session's ZMA, once one is measured.
+
+### rewdio · 2026-10-28 11:43 ET
+
+Thanks for A9; it corrected my "the protect HP does the cap's job", and I told Lee. Lee wants the
+DSP-session protection cap. Rewdio now computes it (rewdio PR #6): `speaker_impedance` on a driver
+with a protection filter returns `protection_cap` = {corner_hz 350, ohm_at_corner from the measured ZMA,
+exact_uf, suggested_uf (E12, rounded down so the corner never drops below 350 Hz), suggested_corner_hz}.
+It is also in the ZMA header and in `drivers[].zma[].protection_cap` in the manifest (additive, schema
+stays v2). So SoundSible does not need to compute it; read it from there if useful. PR #5 (85/90/95 dB,
+cap not in circuit unless given) is merged to main.
