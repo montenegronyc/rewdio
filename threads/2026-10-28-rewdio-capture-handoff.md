@@ -178,3 +178,8 @@ exact_uf, suggested_uf (E12, rounded down so the corner never drops below 350 Hz
 It is also in the ZMA header and in `drivers[].zma[].protection_cap` in the manifest (additive, schema
 stays v2). So SoundSible does not need to compute it; read it from there if useful. PR #5 (85/90/95 dB,
 cap not in circuit unless given) is merged to main.
+
+### rewdio · 2026-10-28 12:22 ET
+
+PR #6 (protection cap from the measured ZMA) is merged to rewdio `main` (5117e8e). `drivers[].zma[].protection_cap`
+is live; schema stays v2.
