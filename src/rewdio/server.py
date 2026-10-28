@@ -338,16 +338,20 @@ async def speaker_nearfield(driver: str, label: str = "nf") -> dict:
 
 @mcp.tool()
 async def speaker_impedance(driver: str, rew_measurement_id: str | None = None, series_cap_uf: float | None = None,
-                            cap_in_circuit: bool = False) -> dict:
+                            cap_in_circuit: bool = False, cap_corner_hz: float = 350.0) -> dict:
     """Mounted impedance of one driver on an impedance jig, exported as zma/<speaker>_<driver>.zma
     (freq ohm phase). Rewdio tries REW's API impedance sweep; if REW refuses, the user takes it in REW's
     GUI and you pass that measurement's id. cap_in_circuit: the horn's series protection capacitor
-    (default False: the passive design wants the driver alone)."""
+    (default False: the passive design wants the driver alone). For a driver with a protection filter (the
+    horn) the result also carries `protection_cap`: the series cap to fit while running on the DSP, sized
+    from the MEASURED impedance at cap_corner_hz (default 350 Hz, SoundSible's BUILD_PLAN), rounded down
+    to an E12 value. Relay suggested_uf to the user."""
     rt = runtime()
     async with exclusive(rt) as ok:
         if not ok:
             return BUSY
-        return _clean(await rt.speaker.impedance(driver, rew_measurement_id, series_cap_uf, cap_in_circuit))
+        return _clean(await rt.speaker.impedance(driver, rew_measurement_id, series_cap_uf, cap_in_circuit,
+                                                 cap_corner_hz=cap_corner_hz))
 
 
 @mcp.tool()

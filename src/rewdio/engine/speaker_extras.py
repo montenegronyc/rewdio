@@ -11,8 +11,25 @@ from pydantic import BaseModel
 
 from ..rew.client import RewError
 
+CAP_CORNER_HZ = 350.0  # SoundSible BUILD_PLAN: -3 dB about an octave below the lowest crossover tried (700 Hz)
+E12 = (1.0, 1.2, 1.5, 1.8, 2.2, 2.7, 3.3, 3.9, 4.7, 5.6, 6.8, 8.2)
 MAX_LISTENING_SPL_DB = 95.0  # Lee never listens above 95 dB SPL at the seat: no reason to drive drivers past it
 DEFAULT_DISTORTION_SPL_DB = (85.0, 90.0, 95.0)
+
+
+def protection_cap(freqs: np.ndarray, ohm: np.ndarray, corner_hz: float = CAP_CORNER_HZ) -> dict:
+    """Series protection capacitor for a compression driver while it runs on the DSP: C = 1 / (2 pi f |Z(f)|),
+    with |Z| read from the MEASURED impedance at the corner, not the nominal rating. A first-order guard
+    against a DSP that boots or loses its preset into a flat path, not part of the crossover. The suggested
+    part is the nearest E12 value at or BELOW the exact one: a smaller cap sits higher, which protects more."""
+    f = np.asarray(freqs, float)
+    z = float(np.exp(np.interp(np.log(corner_hz), np.log(f), np.log(np.asarray(ohm, float)))))
+    exact = 1e6 / (2 * np.pi * corner_hz * z)
+    decade = 10 ** np.floor(np.log10(exact))
+    part = max((m * decade for m in E12 if m * decade <= exact * (1 + 1e-9)), default=decade)
+    return {"corner_hz": corner_hz, "ohm_at_corner": round(z, 2), "exact_uf": round(exact, 2),
+            "suggested_uf": round(part, 3), "suggested_corner_hz": round(1e6 / (2 * np.pi * z * part), 0),
+            "series": "E12, rounded down", "voltage_note": "film capacitor rated 100 V or more"}
 
 
 class Impedance(BaseModel):
@@ -21,6 +38,7 @@ class Impedance(BaseModel):
     source: str  # "api" (Rewdio triggered it) or "imported" (taken in REW's GUI)
     series_cap_uf: float | None = None
     cap_in_circuit: bool | None = None
+    protection_cap: dict | None = None  # suggested DSP-session guard cap, for drivers with a protection filter
     note: str | None = None
 
 
@@ -37,7 +55,8 @@ class Distortion(BaseModel):
 
 class PassiveExtras:
     async def impedance(self, driver: str, rew_measurement_id: str | None = None,
-                        series_cap_uf: float | None = None, cap_in_circuit: bool = False, ppo: int = 48) -> dict:
+                        series_cap_uf: float | None = None, cap_in_circuit: bool = False, ppo: int = 48,
+                        cap_corner_hz: float = CAP_CORNER_HZ) -> dict:
         """One driver's mounted impedance on an impedance jig. Rewdio triggers REW's impedance sweep; if this
         REW refuses that over its API, take it in REW's GUI and pass `rew_measurement_id` to import it.
         cap_in_circuit defaults to False: the passive design wants the driver alone."""
@@ -68,14 +87,20 @@ class PassiveExtras:
         self.s._write(f"data/{rew_measurement_id}.zma.json",
                       {"freqs": [float(x) for x in spec.freqs], "ohm": [float(x) for x in ohm],
                        "phase_deg": [float(x) for x in phase]})
+        guarded = any(f.protect for f in self.s.config.channel(driver).crossover or [])
+        cap = protection_cap(spec.freqs, ohm, cap_corner_hz) if guarded else None
         st.impedance = [z for z in st.impedance if z.driver != driver]
         st.impedance.append(Impedance(driver=driver, id=rew_measurement_id, source=source,
                                       series_cap_uf=series_cap_uf if series_cap_uf is not None
-                                      else st.geometry.series_cap_uf, cap_in_circuit=cap_in_circuit))
+                                      else st.geometry.series_cap_uf, cap_in_circuit=cap_in_circuit,
+                                      protection_cap=cap))
         self._save(st)
         i = int(np.argmax(ohm))
-        return {"ok": True, "id": rew_measurement_id, "source": source, "median_ohm": round(med, 2),
-                "peak_ohm": round(float(ohm[i]), 2), "peak_hz": round(float(spec.freqs[i]), 1)}
+        rep = {"ok": True, "id": rew_measurement_id, "source": source, "median_ohm": round(med, 2),
+               "peak_ohm": round(float(ohm[i]), 2), "peak_hz": round(float(spec.freqs[i]), 1)}
+        if cap:
+            rep["protection_cap"] = cap
+        return rep
 
     def _driver_band(self, driver: str) -> tuple[float, float]:
         """Default distortion sweep band: a horn (it has a protection HP) 400 Hz..20 kHz, a woofer 200 Hz..6 kHz."""
@@ -146,12 +171,18 @@ class PassiveExtras:
                    if z.series_cap_uf is not None else f"series cap {'in' if z.cap_in_circuit else 'not in'} circuit "
                                                        "(value not recorded)")
             lines = [f"* Rewdio impedance: {st.speaker} {z.driver} ({st.variant}), mounted",
-                     f"* REW measurement {z.id} ({z.source}); {cap}", "* freq(Hz)\tohm\tphase(deg)"]
+                     f"* REW measurement {z.id} ({z.source}); {cap}"]
+            if z.protection_cap:
+                pc = z.protection_cap
+                lines.append(f"* DSP-session protection cap: {pc['suggested_uf']:g} uF ({pc['exact_uf']:g} exact) for "
+                             f"{pc['corner_hz']:g} Hz at {pc['ohm_at_corner']:g} ohm measured")
+            lines.append("* freq(Hz)\tohm\tphase(deg)")
             lines += [f"{f:.6f}\t{o:.4f}\t{p:.4f}" for f, o, p in zip(d["freqs"], d["ohm"], d["phase_deg"])]
             (out / rel).parent.mkdir(parents=True, exist_ok=True)
             (out / rel).write_text("\n".join(lines) + "\n")
             entries.append({"driver": z.driver, "file": rel.as_posix(), "measurement_id": z.id, "source": z.source,
-                            "series_cap_uf": z.series_cap_uf, "cap_in_circuit": z.cap_in_circuit})
+                            "series_cap_uf": z.series_cap_uf, "cap_in_circuit": z.cap_in_circuit,
+                            "protection_cap": z.protection_cap})
         return entries
 
     def _export_distortion(self, st: SpeakerState, out: Path) -> list[dict]:

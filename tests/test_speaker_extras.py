@@ -28,7 +28,7 @@ async def test_impedance_is_captured_and_exported_as_zma(sim_runtime, tmp_path):
     rt.speaker.export(tmp_path)
     z = (tmp_path / "zma" / "L_LH.zma").read_text().splitlines()
     assert z[0].startswith("*") and "22 uF NOT in circuit" in z[1]
-    f, ohm, ph = map(float, z[3].split("\t"))
+    f, ohm, ph = map(float, next(r for r in z if not r.startswith("*")).split("\t"))
     assert f > 0 and ohm > 5
     m = json.loads((tmp_path / "rewdio_session.json").read_text())
     lh = next(d for d in m["drivers"] if d["role"] == "LH")
@@ -69,3 +69,26 @@ async def test_distortion_above_the_listening_ceiling_or_near_the_abort_limit_is
     rt.session.config.sweep.max_spl_db = 95.0  # a lower REW abort limit still wins
     with pytest.raises(ValueError, match="abort limit"):
         await rt.speaker.distortion("LH", [95.0])
+
+
+def test_protection_cap_from_measured_impedance():
+    from rewdio.engine.speaker_extras import protection_cap
+    f = np.geomspace(10, 20000, 400)
+    cap = protection_cap(f, np.full(f.size, 8.0), 350.0)
+    assert cap["exact_uf"] == pytest.approx(56.84, abs=0.01)  # 1 / (2 pi 350 Hz 8 ohm)
+    assert cap["suggested_uf"] == 56.0 and cap["suggested_corner_hz"] >= 350  # rounded down: never lower
+    rising = protection_cap(f, 6.0 + f / 100, 350.0)  # uses |Z| measured AT the corner, not a nominal
+    assert rising["ohm_at_corner"] == pytest.approx(9.5, rel=0.01)
+    assert protection_cap(f, np.full(f.size, 16.0), 350.0)["suggested_uf"] == 27.0
+
+
+async def test_horn_impedance_reports_the_cap_and_woofer_does_not(sim_runtime, tmp_path):
+    rt = await _set(sim_runtime)
+    horn = await rt.speaker.impedance("LH")
+    woofer = await rt.speaker.impedance("LW")
+    assert "protection_cap" in horn and "protection_cap" not in woofer
+    pc = horn["protection_cap"]
+    assert pc["suggested_uf"] <= pc["exact_uf"] and pc["corner_hz"] == 350.0
+    await _run(rt)
+    rt.speaker.export(tmp_path)
+    assert "protection cap" in (tmp_path / "zma" / "L_LH.zma").read_text()

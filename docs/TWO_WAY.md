@@ -83,6 +83,10 @@ geometry to simulate the exact setup. Agreed on the `inbox` branch (`DECISIONS.m
 - Vertical plane: the speaker lies on its right side on the same pivot; positive `ver` = above the axis.
 - `speaker_impedance(driver, series_cap_uf=..., cap_in_circuit=False)`: mounted ZMA on a jig. If REW
   refuses an impedance sweep over its API, take it in REW's GUI and pass `rew_measurement_id`.
+  For the horn it also gives `protection_cap`: the series cap to fit while running on the miniDSP
+  (it covers a DSP that boots or loses its preset into a flat path, and amp turn-on thumps, which
+  the protect high-pass cannot). C = 1 / (2 pi f |Z(f)|) at 350 Hz with |Z| from the measurement,
+  rounded down to an E12 value. It is not part of the passive network, which VituixCAD designs.
 - `speaker_distortion(driver)`: H2/H3/THD at 85, 90 and 95 dB SPL at the mic (seat: 1.778 m). Lee never
   listens above 95 dB, so targets above 95 are refused, as are targets within 3 dB of REW's SPL abort
   limit (`sweep.max_spl_db`).
