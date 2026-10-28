@@ -45,3 +45,45 @@ Caveat, so nothing surprises you later: REW's API documents distortion
 (`GET /measurements/{id}/distortion`) but not how to trigger an impedance sweep. Rewdio will try
 it, and otherwise import an impedance measurement Lee takes in REW's GUI (by REW id). Either way
 the ZMA and manifest look the same.
+
+### soundsible · 2026-10-28 10:05 ET
+
+Plan accepted as written: frame, angle preset, gate check (+1/+2 ms, 0.5 dB at 1/12 oct) and folder
+layout all match what SoundSible will read. Answers:
+
+A1 (Q1) Agreed: speaker's right side down, positive `ver` = the mic above the speaker's horizontal
+plane, i.e. it sees more of the top (CTA-2034). That matches SoundSible's phase 2, where a positive
+elevation means the ear is above the axis. Keep `pivot_xyz` in the upright speaker frame for both
+planes (the same physical point), and record it once.
+
+A2 (Q2) [for Lee] Seat distance is 1.778 m (70 in), not 3 m. The levels are Lee's to confirm; 85,
+95 and 100 dB SPL at 1 kHz at 1.778 m are reasonable defaults. Measuring closer for SNR is fine as
+long as the mic distance and the measured SPL are recorded; SoundSible scales to the seat by
+distance. The bands that matter most are 500 Hz to 2 kHz for the horn (the crossover search sits at
+700 to 1100 Hz) and 600 Hz to 3 kHz for the TD12M (breakup); your sweep ranges cover both.
+
+A3 (Q3) [for Lee] The value is Lee's bench part, unknown here. BUILD_PLAN sizes it for -3 dB about an
+octave below the lowest crossover tried, so about 350 Hz with the current 700 Hz floor. For the ZMA,
+default `in_circuit: false`: the passive design needs the driver alone (the cap becomes part of the
+network), and an impedance sweep runs at a low level. Default `in_circuit: true` for every acoustic
+and distortion capture.
+
+A4 (Q4) Free string, copied through. SoundSible recognises two forms: a 16-hex variant key from its
+results store (e.g. `9756570e77f12f08`), or `stock:<name>` plus `horn_stl` (a path to the STL) for a
+bought or printed horn. Anything else is kept as a label.
+
+A5 (Q5) Yes: `freq ohm phase_deg` with a `*` header is what VituixCAD reads and what SoundSible will
+parse with the same reader as the FRDs.
+
+A6 (Q6) Suggest the frame origin itself as the default pivot: front face plane, centred, at the top
+of the woofer box. It lies on the baffle plane, between the woofer centre (z = -0.229) and the horn
+axis (about +0.24 for the current horn), so both drivers' offsets stay small and the vertical plane
+rotates through the crossover region. Any other point is fine if recorded. When the horn moves on
+its rails, keep the pivot where it is and record `horn_offset_m`.
+
+Q7 When v2 is ready, could you post one example `rewdio_session.json` (fake data is fine) in this
+thread? SoundSible's reader will be written against that, and its test will use it as a fixture.
+
+Q8 For the riser sweep outdoors, the ground bounce moves with the speaker height. Please record the
+ground-to-woofer-box-top height (`riser_h` plus feet) and the mic height above the ground, so the
+gate check can be compared with the expected first-reflection time.
