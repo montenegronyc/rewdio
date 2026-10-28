@@ -261,6 +261,72 @@ async def set_crossover(role: str, filters: list[dict] | None = None, raw: bool 
     return {"role": role, "crossover": [f.model_dump() for f in o.crossover or []]}
 
 
+# -- speaker measurement (2-way drivers -> VituixCAD) ---------------------------------------------
+
+
+@mcp.tool()
+async def speaker_plan(speaker: str, planes: list[str] | None = None, step_deg: float = 10.0,
+                       max_deg: float = 180.0, symmetric: bool = False, distance_m: float = 2.0) -> dict:
+    """Plan a raw driver capture of one speaker around a manual turntable, for VituixCAD.
+
+    The speaker's drivers are the channels with kind 'driver' and this `speaker` name; each needs a
+    `crossover` in the config (protection filters marked protect=true). planes: ['hor'] or
+    ['hor', 'ver']. symmetric=True measures one side only. Then call `speaker_step` repeatedly."""
+    from .engine.speaker import angles_for
+    rt = runtime()
+    st = rt.speaker.plan(speaker, angles_for(planes or ["hor"], step_deg, max_deg, symmetric), distance_m)
+    return {"ok": True, "drivers": st.drivers, "angles": len(st.points),
+            "sweeps": len(st.points) * len(st.drivers)}
+
+
+@mcp.tool()
+async def speaker_step() -> dict:
+    """Advance the speaker capture: either asks the user to rotate (status user_action_required: relay
+    action.instructions, then call `speaker_confirm`), or sweeps every driver raw at the current angle."""
+    rt = runtime()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return _clean(await rt.speaker.step())
+
+
+@mcp.tool()
+async def speaker_confirm(key: str | None = None) -> dict:
+    """The user rotated the speaker as asked. Then call `speaker_step` again."""
+    rt = runtime()
+    st = rt.speaker.state()
+    sim = []
+    if st is not None and not st.done and st.rotated_to != st.index:
+        sim = rt.apply_sim_effects(rt.speaker._ask(st)["action"], None)
+    res = rt.speaker.confirm(key)
+    if sim:
+        res["simulated_effects"] = sim
+    return res
+
+
+@mcp.tool()
+async def speaker_nearfield(driver: str, label: str = "nf") -> dict:
+    """Sweep one driver (raw) with the mic close to it: a few mm from the woofer dust cap, or in the port
+    mouth (label 'port'). Exported as its own FRD for VituixCAD's Merger, which fills in below the
+    far-field gate limit."""
+    rt = runtime()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return await rt.speaker.nearfield(driver, label)
+
+
+@mcp.tool()
+async def export_frd(out_dir: str | None = None, gate_ms: float = 5.0, pre_ms: float = 1.0,
+                     ppo: int = 48) -> dict:
+    """Write the captured set as VituixCAD FRDs ('<speaker>_<driver> hor 30.frd') plus
+    rewdio_session.json, the manifest SoundSible reads. One common delay is removed from every file,
+    so in VituixCAD set every driver's X/Y/Z offset to 0. gate_ms: up to the first reflection."""
+    from .analysis.frd import Gate
+    rt = runtime()
+    return _clean(rt.speaker.export(out_dir, Gate(pre_ms=pre_ms, gate_ms=gate_ms), ppo=ppo))
+
+
 @mcp.tool()
 async def solo(roles: list[str]) -> dict:
     """Unmute only these channels; mute the rest."""

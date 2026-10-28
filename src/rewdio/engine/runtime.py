@@ -8,6 +8,7 @@ import os
 from ..minidsp.client import MiniDSPClient
 from ..rew.client import RewClient
 from .rig import Rig
+from .speaker import SpeakerCapture
 from .store import Session
 from .workflow import Autopilot
 
@@ -45,6 +46,7 @@ class Runtime:
             self.dsp = MiniDSPClient(cfg.minidsp_url, cfg.minidsp_device_index)
         self.rig = Rig(self.session, self.rew, self.dsp)
         self.autopilot = Autopilot(self.rig)
+        self.speaker = SpeakerCapture(self.rig)
 
     @property
     def busy(self) -> bool:
@@ -66,6 +68,23 @@ class Runtime:
         if sim:
             res["simulated_effects"] = sim
         return res
+
+    def _sim_rotate(self, polar: dict) -> str:
+        """Turning the speaker by an angle about its pivot = moving the mic the opposite way around it."""
+        import numpy as np
+        w = self.world
+        roles = self.speaker.drivers_of(polar["speaker"])
+        pivot = np.mean([w.speaker(r).pos for r in roles], axis=0)
+        key = f"_polar_axis_{polar['speaker']}"
+        if not hasattr(self, key):  # the mic position at 0 degrees defines the axis
+            setattr(self, key, np.subtract(w.mic, pivot))
+        v = getattr(self, key)
+        a = np.deg2rad(-polar["angle"])
+        k = np.array([0.0, 0.0, 1.0]) if polar["plane"] == "hor" else np.cross(v, [0.0, 0.0, 1.0])
+        k = k / np.linalg.norm(k)
+        r = v * np.cos(a) + np.cross(k, v) * np.sin(a) + k * np.dot(k, v) * (1 - np.cos(a))  # Rodrigues
+        w.mic = tuple(pivot + r)
+        return f"rotated {polar['speaker']} to {polar['plane']} {polar['angle']:g} (mic at {tuple(np.round(w.mic, 3))})"
 
     def advance_in_background(self) -> bool:
         """Kick the autopilot from the phone. False if a run is already going."""
@@ -116,6 +135,8 @@ class Runtime:
             if p:
                 w.speaker(role).pos = tuple(p)
                 done.append(f"moved {role} to {tuple(p)}")
+        if "polar" in sim:
+            done.append(self._sim_rotate(sim["polar"]))
         target = action.get("mic_to")
         if target:
             p = xyz or cfg.seat_xyz.get(target) or w.seats.get(target) or action.get("xyz_suggestion")
