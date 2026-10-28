@@ -11,6 +11,9 @@ from pydantic import BaseModel
 
 from ..rew.client import RewError
 
+MAX_LISTENING_SPL_DB = 95.0  # Lee never listens above 95 dB SPL at the seat: no reason to drive drivers past it
+DEFAULT_DISTORTION_SPL_DB = (85.0, 90.0, 95.0)
+
 
 class Impedance(BaseModel):
     driver: str
@@ -90,6 +93,9 @@ class PassiveExtras:
             raise ValueError(f"{driver} is not a driver of {st.speaker}; drivers: {st.drivers}")
         cfg = self.s.config
         sw = cfg.sweep
+        loud = [x for x in spl_db if x > MAX_LISTENING_SPL_DB]
+        if loud:
+            raise ValueError(f"targets {loud} dB are above the {MAX_LISTENING_SPL_DB:g} dB SPL listening ceiling")
         over = [x for x in spl_db if x > sw.max_spl_db - 3]
         if over:
             raise ValueError(f"targets {over} dB are within 3 dB of REW's SPL abort limit ({sw.max_spl_db:g} dB, "

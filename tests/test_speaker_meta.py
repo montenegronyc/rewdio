@@ -19,6 +19,14 @@ def test_mic_from_distance_and_heights_lands_in_the_frame():
     assert Geometry.from_inputs().pivot_xyz == (0.0, 0.0, 0.0)  # SoundSible's default pivot: the frame origin
 
 
+def test_series_cap_defaults_follow_whether_there_is_one():
+    assert Geometry().series_cap_in_circuit is False  # no cap on the bench: nothing in circuit
+    assert Geometry(series_cap_uf=33.0).series_cap_in_circuit is True
+    assert Geometry(series_cap_uf=33.0, series_cap_in_circuit=False).series_cap_in_circuit is False
+    with pytest.raises(ValueError):
+        Geometry(series_cap_in_circuit=True)
+
+
 def test_ground_bounce_time():
     g = Geometry.from_inputs(mic_xyz=(1.778, 0.0, 0.0), origin_height_m=1.0)
     assert g.mic_height_m == 1.0

@@ -62,7 +62,10 @@ async def test_distortion_reaches_each_level_and_exports_csv(sim_runtime, tmp_pa
     assert lo[-1].endswith(",")  # a ragged REW row keeps its blank cell
 
 
-async def test_distortion_near_the_spl_abort_limit_is_refused(sim_runtime):
+async def test_distortion_above_the_listening_ceiling_or_near_the_abort_limit_is_refused(sim_runtime):
     rt = await _set(sim_runtime)
+    with pytest.raises(ValueError, match="listening ceiling"):
+        await rt.speaker.distortion("LH", [85.0, 100.0])
+    rt.session.config.sweep.max_spl_db = 95.0  # a lower REW abort limit still wins
     with pytest.raises(ValueError, match="abort limit"):
-        await rt.speaker.distortion("LH", [100.0])
+        await rt.speaker.distortion("LH", [95.0])

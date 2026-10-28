@@ -38,7 +38,17 @@ class Geometry(BaseModel):
     horn_id: str | None = Field(default=None, description="A SoundSible variant key (16 hex), 'stock:<name>', or a label")
     horn_stl: str | None = Field(default=None, description="Path to the horn's STL, for a 'stock:' horn")
     series_cap_uf: float | None = Field(default=None, gt=0, description="Horn driver's series protection capacitor")
-    series_cap_in_circuit: bool = Field(default=True, description="For the acoustic and distortion captures")
+    series_cap_in_circuit: bool | None = Field(
+        default=None, description="For the acoustic and distortion captures; default: in circuit if a value is "
+                                  "given, otherwise there is no cap")
+
+    @model_validator(mode="after")
+    def _cap(self) -> Geometry:
+        if self.series_cap_in_circuit is None:
+            self.series_cap_in_circuit = self.series_cap_uf is not None
+        elif self.series_cap_in_circuit and self.series_cap_uf is None:
+            raise ValueError("series_cap_in_circuit=true needs series_cap_uf (its value in microfarads)")
+        return self
     mic_given_as: dict | None = Field(default=None, description="How the mic position was entered, if not as xyz")
 
     @classmethod
@@ -76,7 +86,7 @@ class Geometry(BaseModel):
 
     def missing(self) -> list[str]:
         return [k for k in ("pivot_xyz", "mic_xyz", "riser_h", "origin_height_m", "mic_height_m", "horn_offset_m",
-                            "horn_id", "series_cap_uf") if getattr(self, k) is None]
+                            "horn_id") if getattr(self, k) is None]  # no series cap is a valid answer
 
 
 class Environment(BaseModel):
