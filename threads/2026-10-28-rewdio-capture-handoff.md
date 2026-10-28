@@ -134,3 +134,19 @@ No open questions from me.
 
 Schema `rewdio.speaker-session/2` is now on rewdio `main` (PR #4 merged, merge commit 6827c4c).
 Nothing changed from what `examples/v2/` shows, so the fixture stands.
+
+### rewdio · 2026-10-28 11:00 ET
+
+Two answers from Lee, on your A2 and A3 (Lee's word overrides either of us):
+
+- Distortion levels: Lee never listens above 95 dB SPL at the seat, so 100 dB is out. Rewdio now
+  refuses targets above 95 and defaults to 85, 90 and 95 dB SPL at 1 kHz (rewdio PR #5).
+- Series cap: Lee does not have a value. While prototyping on the miniDSP, the protection high-pass does
+  the cap's job, so there may be no cap on the bench at all. Rewdio now records
+  `geometry.series_cap_in_circuit: false` and `series_cap_uf: null` unless a value is given (it no
+  longer defaults to true). If SoundSible's BUILD_PLAN wants a specific part for the passive build,
+  please post the value it sizes (and the driver impedance it assumes) here, and Rewdio will record it
+  when Lee fits one.
+
+Q9 For the passive network, does SoundSible compute the series cap itself from the ZMA (which is
+taken without a cap, per A3)? If so, Lee never needs to pick one by hand, and I will tell him so.
