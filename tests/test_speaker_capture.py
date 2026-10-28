@@ -38,11 +38,13 @@ def _rig(rt):
     return guard
 
 
-async def _run(rt, points):
+async def _run(rt, points=None):
+    """Drive a capture to the end; plans `points` first unless None (a set already planned)."""
     cap = rt.speaker
-    cap.plan("L", points, distance_m=2.0)
+    if points is not None:
+        cap.plan("L", points, distance_m=2.0)
     seen = []
-    for _ in range(4 * len(points) + 4):
+    for _ in range(4 * len(cap.state().points) + 4):
         rep = await cap.step()
         if rep["status"] == "user_action_required":
             seen.append(tuple(rt.world.mic))
@@ -85,12 +87,12 @@ async def test_polar_capture_exports_phase_true_frds(sim_runtime, tmp_path):
     out = tmp_path / "frd"
     res = rt.speaker.export(out, Gate(pre_ms=1.0, gate_ms=4.0))
     assert res["files"] == 10
-    names = sorted(p.name for p in out.glob("*.frd"))
+    names = sorted(p.name for p in out.glob("frd/*/*.frd"))
     assert "L_LH hor -30.frd" in names and "L_LW hor 60.frd" in names
 
     for angle, mic in mics.items():
-        f, hw = read_frd(out / f"L_LW hor {int(angle)}.frd")
-        _, hh = read_frd(out / f"L_LH hor {int(angle)}.frd")
+        f, hw = read_frd(out / "frd" / "LW" / f"L_LW hor {int(angle)}.frd")
+        _, hh = read_frd(out / "frd" / "LH" / f"L_LH hor {int(angle)}.frd")
         band = (f > 900) & (f < 5000)
         dt = _delay(LH, mic) - _delay(LW, mic)
         ratio = (hh / hw)[band]
@@ -100,7 +102,7 @@ async def test_polar_capture_exports_phase_true_frds(sim_runtime, tmp_path):
         assert np.allclose(np.abs(ratio), r_ratio, rtol=0.05)  # protection divided out: levels match
 
     m = json.loads((out / "rewdio_session.json").read_text())
-    assert m["schema"] == "rewdio.speaker-session/1" and m["geometry"]["driver_offsets_in_phase"]
+    assert m["schema"] == "rewdio.speaker-session/2" and m["geometry"]["driver_offsets_in_phase"]
     assert [d["role"] for d in m["drivers"]] == ["LW", "LH"]
     assert m["drivers"][1]["files"][0]["protection_removed"][0]["protect"] is True
     # the removed delay is the onset of the first arrival (a little ahead of the peak in this band-limited
@@ -123,7 +125,7 @@ async def test_nearfield_is_exported_for_the_merger(sim_runtime, tmp_path):
     await _run(rt, angles_for(["hor"], step_deg=90, max_deg=90, symmetric=True))
     await rt.speaker.nearfield("LW", "nf")
     res = rt.speaker.export(tmp_path)
-    assert res["nearfield"] == 1 and (tmp_path / "L_LW nf.frd").exists()
+    assert res["nearfield"] == 1 and (tmp_path / "frd" / "LW" / "L_LW nf.frd").exists()
 
 
 async def test_report_sums_drivers_through_the_configured_crossover(sim_runtime):

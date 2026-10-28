@@ -266,17 +266,37 @@ async def set_crossover(role: str, filters: list[dict] | None = None, raw: bool 
 
 @mcp.tool()
 async def speaker_plan(speaker: str, planes: list[str] | None = None, step_deg: float = 10.0,
-                       max_deg: float = 180.0, symmetric: bool = False, distance_m: float = 2.0) -> dict:
-    """Plan a raw driver capture of one speaker around a manual turntable, for VituixCAD.
+                       max_deg: float = 180.0, symmetric: bool = False, distance_m: float | None = None,
+                       angles: dict | None = None, preset: str | None = None, variant: str = "default",
+                       geometry: dict | None = None, environment: dict | None = None,
+                       replace: bool = False) -> dict:
+    """Plan a raw driver capture set of one speaker around a manual turntable, for VituixCAD/SoundSible.
 
     The speaker's drivers are the channels with kind 'driver' and this `speaker` name; each needs a
-    `crossover` in the config (protection filters marked protect=true). planes: ['hor'] or
-    ['hor', 'ver']. symmetric=True measures one side only. Then call `speaker_step` repeatedly."""
-    from .engine.speaker import angles_for
+    `crossover` in the config (protection filters marked protect=true).
+    Angles: `preset` ('soundsible': 0..60 by 5 then 70..180 by 10, hor and ver), or `angles`
+    {"hor": [5, 10, ...], "ver": [...], "both_signs": true}, or planes/step_deg/max_deg/symmetric.
+    variant: label of this physical setup (e.g. 'offset10_riser40'); each variant is its own set.
+    geometry (frame: x forward, y to the speaker's left, z up, origin top-front centre of the woofer box,
+    metres): pivot_xyz, mic_xyz (or mic_distance_m + mic_height_m + origin_height_m above the ground),
+    riser_h, horn_offset_m, horn_stem_lift_m, horn_id.
+    environment: temperature_c, indoor, site, soundsible_commit. Then call `speaker_step` repeatedly."""
+    from .engine.speaker import angles_for, points_from
+    from .engine.speaker_meta import PRESETS, AnglePlan, Environment, Geometry
     rt = runtime()
-    st = rt.speaker.plan(speaker, angles_for(planes or ["hor"], step_deg, max_deg, symmetric), distance_m)
-    return {"ok": True, "drivers": st.drivers, "angles": len(st.points),
-            "sweeps": len(st.points) * len(st.drivers)}
+    if preset is not None:
+        if preset not in PRESETS:
+            raise ValueError(f"unknown preset {preset!r}; presets: {sorted(PRESETS)}")
+        pts = points_from(PRESETS[preset])
+    elif angles is not None:
+        pts = points_from(AnglePlan.model_validate(angles))
+    else:
+        pts = angles_for(planes or ["hor"], step_deg, max_deg, symmetric)
+    st = rt.speaker.plan(speaker, pts, distance_m, Geometry.from_inputs(**(geometry or {})),
+                         Environment.model_validate(environment or {}), variant, replace)
+    return {"ok": True, "drivers": st.drivers, "angles": len(st.points), "sweeps": len(st.points) * len(st.drivers),
+            "distance_m": round(st.distance_m, 4), "folder": str(rt.speaker.folder(st)),
+            "not_recorded": st.geometry.missing() + st.environment.missing()}
 
 
 @mcp.tool()
@@ -317,14 +337,45 @@ async def speaker_nearfield(driver: str, label: str = "nf") -> dict:
 
 
 @mcp.tool()
+async def speaker_impedance(driver: str, rew_measurement_id: str | None = None, series_cap_uf: float | None = None,
+                            cap_in_circuit: bool = False) -> dict:
+    """Mounted impedance of one driver on an impedance jig, exported as zma/<speaker>_<driver>.zma
+    (freq ohm phase). Rewdio tries REW's API impedance sweep; if REW refuses, the user takes it in REW's
+    GUI and you pass that measurement's id. cap_in_circuit: the horn's series protection capacitor
+    (default False: the passive design wants the driver alone)."""
+    rt = runtime()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return _clean(await rt.speaker.impedance(driver, rew_measurement_id, series_cap_uf, cap_in_circuit))
+
+
+@mcp.tool()
+async def speaker_distortion(driver: str, spl_db: list[float], ref_hz: float = 1000.0,
+                             band_lo_hz: float | None = None, band_hi_hz: float | None = None) -> dict:
+    """Harmonic distortion (H2, H3, THD...) of one driver at each target SPL, measured at ref_hz at the mic
+    (SoundSible's seat is 1.778 m; closer is fine, the distance is recorded). Raw with its protection
+    filter kept. Default band: horn 400 Hz..20 kHz, woofer 200 Hz..6 kHz. Targets within 3 dB of
+    REW's SPL abort limit are refused. Exported as distortion/<speaker>_<driver>_<spl>dB.csv."""
+    rt = runtime()
+    band = (band_lo_hz, band_hi_hz) if band_lo_hz is not None and band_hi_hz is not None else None
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return _clean(await rt.speaker.distortion(driver, spl_db, ref_hz, band))
+
+
+@mcp.tool()
 async def export_frd(out_dir: str | None = None, gate_ms: float = 5.0, pre_ms: float = 1.0,
-                     ppo: int = 48) -> dict:
-    """Write the captured set as VituixCAD FRDs ('<speaker>_<driver> hor 30.frd') plus
-    rewdio_session.json, the manifest SoundSible reads. One common delay is removed from every file,
-    so in VituixCAD set every driver's X/Y/Z offset to 0. gate_ms: up to the first reflection."""
+                     ppo: int = 48, root: str | None = None) -> dict:
+    """Write the captured set: <root>/measurements/<date>_<site>_<variant>/ (root defaults to REWDIO_HOME;
+    out_dir overrides the whole path) with rewdio_session.json (schema rewdio.speaker-session/2) at the
+    top, frd/<driver>/ ('<speaker>_<driver> hor 30.frd'), zma/ and distortion/. One common delay is removed
+    from every file, so in VituixCAD set every driver's X/Y/Z offset to 0. gate_ms: up to the first
+    reflection; each file also reports the band that survives moving the gate end +1/+2 ms."""
     from .analysis.frd import Gate
     rt = runtime()
-    return _clean(rt.speaker.export(out_dir, Gate(pre_ms=pre_ms, gate_ms=gate_ms), ppo=ppo))
+    return _clean(rt.speaker.export(out_dir, Gate(pre_ms=pre_ms, gate_ms=gate_ms), ppo=ppo, root=root))
 
 
 @mcp.tool()

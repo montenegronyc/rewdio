@@ -67,3 +67,13 @@ def test_frd_roundtrip_and_names(tmp_path):
     assert np.allclose(f2, f, rtol=1e-6) and np.allclose(h2, h, atol=1e-4)
     assert vituix_name("L", "LW", "ver", 190) == "L_LW ver -170.frd"
     assert vituix_name("L", "LW", "hor", 180) == "L_LW hor 180.frd"
+
+
+def test_gate_check_finds_the_band_a_late_reflection_spoils():
+    from rewdio.analysis.frd import stable_band
+    f = np.geomspace(200, 20000, 300)
+    clean = stable_band(_impulse(0.0030), FS, f, 0.0030, Gate(gate_ms=5.0))
+    assert clean is not None and clean[0] < 400 and clean[1] > 15000
+    # a reflection 0.5 ms after the gate end: moving the end +1 ms lets it in, so little stays stable
+    dirty = stable_band(_impulse(0.0030, refl_s=0.0085), FS, f, 0.0030, Gate(gate_ms=5.0))
+    assert dirty is None or (dirty[1] - dirty[0]) < (clean[1] - clean[0]) / 4
