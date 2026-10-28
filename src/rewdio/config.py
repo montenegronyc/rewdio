@@ -17,6 +17,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .minidsp.state import XoverFilter
+
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -25,6 +27,7 @@ class _Strict(BaseModel):
 class ChannelKind(str, Enum):
     MAIN = "main"
     SUB = "sub"
+    DRIVER = "driver"  # one driver of a multi-way speaker on its own output (speaker measurement)
 
 
 class TimingMode(str, Enum):
@@ -39,6 +42,10 @@ class Channel(_Strict):
     dsp_output: int = Field(ge=0, description="0-based miniDSP output index")
     rew_output_channel: str | None = Field(
         default=None, description="REW output channel for this speaker; null = leave REW's selection alone")
+    speaker: str | None = Field(default=None, description="Driver channels: the speaker they belong to, e.g. 'L'")
+    crossover: list[XoverFilter] | None = Field(
+        default=None, description="Crossover Rewdio writes to this output; null = leave the DSP's own alone. "
+                                  "Filters with protect=true are never removed, even for raw driver captures")
 
 
 class Baseline(_Strict):
@@ -370,7 +377,9 @@ class SystemConfig(_Strict):
         return self
 
     def peq_slots_for(self, role: str) -> list[int]:
-        """Subs use peq_slots (bass EQ); mains use balance.peq_slots (L/R balance)."""
+        """Subs use peq_slots (bass EQ); mains use balance.peq_slots (L/R balance); drivers get none yet."""
+        if self.channel(role).kind == ChannelKind.DRIVER:
+            return []
         return self.peq_slots if self.channel(role).kind == ChannelKind.SUB else self.balance.peq_slots
 
     def channel(self, role: str) -> Channel:
@@ -382,6 +391,10 @@ class SystemConfig(_Strict):
     @property
     def mains(self) -> list[Channel]:
         return [c for c in self.channels if c.kind == ChannelKind.MAIN]
+
+    @property
+    def drivers(self) -> list[Channel]:
+        return [c for c in self.channels if c.kind == ChannelKind.DRIVER]
 
     @property
     def subs(self) -> list[Channel]:

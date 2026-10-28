@@ -332,6 +332,13 @@ class FakeMiniDSP:
                         out.peq.pop(q["index"], None)
                     elif q.get("coeff"):
                         out.peq[q["index"]] = Biquad.from_minidsp(q["coeff"])
+                for g in o.get("crossover", []):  # a write replaces the scenario's own crossover
+                    for c in g.get("coeff", []):
+                        out.xslots[(g["index"], c["index"])] = Biquad.from_minidsp(c)
+                    if g.get("bypass") is not None:
+                        out.xbypass[g["index"]] = bool(g["bypass"])
+                    out.xover = [bq for (gi, _), bq in sorted(out.xslots.items())
+                                 if not out.xbypass.get(gi, False) and bq != Biquad.identity()]  # unity pads
             ms = cfg.get("master_status") or {}
             if ms.get("volume") is not None:
                 self.world.master_volume_db = float(ms["volume"])

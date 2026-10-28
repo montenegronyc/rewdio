@@ -267,7 +267,14 @@ class RewClient:
 
     async def impulse_response(self, ident: str) -> tuple[np.ndarray, float]:
         """Raw (unwindowed, unnormalised) impulse response and its sample rate."""
+        ir, fs, _ = await self.impulse_response_timed(ident)
+        return ir, fs
+
+    async def impulse_response_timed(self, ident: str) -> tuple[np.ndarray, float, float]:
+        """Raw impulse response, sample rate, and the time of its first sample in seconds relative to the
+        timing reference (REW's `startTime`). With a loopback reference that time base is absolute."""
         r = await self.get(f"/measurements/{ident}/impulse-response", windowed="false", normalised="false")
         if not isinstance(r, dict) or "data" not in r:
             raise RewError(f"REW returned no impulse response for {ident}: {r}")
-        return decode_floats(r["data"]), float(r.get("sampleRate") or 1.0 / float(r["sampleInterval"]))
+        fs = float(r.get("sampleRate") or 1.0 / float(r["sampleInterval"]))
+        return decode_floats(r["data"]), fs, float(r.get("startTime") or 0.0)

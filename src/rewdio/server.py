@@ -12,6 +12,7 @@ from .analysis.metrics import summarize
 from .dashboard.app import serve_in_background
 from .engine import dsp_setups, setup
 from .engine.runtime import Runtime
+from .minidsp.state import XoverFilter
 from .prompts import register as register_prompts
 
 INSTRUCTIONS = """\
@@ -241,6 +242,99 @@ async def set_channel(role: str, gain_db: float | None = None, delay_ms: float |
             return BUSY
         o = await rt.rig.set_channel(role, gain_db=gain_db, delay_ms=delay_ms, invert=invert, mute=mute)
     return {"role": role, **o.model_dump(mode="json")}
+
+
+@mcp.tool()
+async def set_crossover(role: str, filters: list[dict] | None = None, raw: bool = False) -> dict:
+    """Write a channel's crossover block. Only for channels with `crossover` in the config.
+
+    filters: [{"kind": "HP"|"LP", "topology": "LR4"|"LR8"|"LR2"|"BW2"|"BW4", "freq_hz": 1200,
+    "protect": false}]; omit to restore the configured crossover. raw=True keeps only protection
+    filters (for measuring the driver itself). A protection filter can never be removed."""
+    rt = runtime()
+    rt.session.config.channel(role)
+    parsed = [XoverFilter.model_validate(f) for f in filters] if filters is not None else None
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        o = await rt.rig.set_crossover(role, parsed, raw=raw)
+    return {"role": role, "crossover": [f.model_dump() for f in o.crossover or []]}
+
+
+# -- speaker measurement (2-way drivers -> VituixCAD) ---------------------------------------------
+
+
+@mcp.tool()
+async def speaker_plan(speaker: str, planes: list[str] | None = None, step_deg: float = 10.0,
+                       max_deg: float = 180.0, symmetric: bool = False, distance_m: float = 2.0) -> dict:
+    """Plan a raw driver capture of one speaker around a manual turntable, for VituixCAD.
+
+    The speaker's drivers are the channels with kind 'driver' and this `speaker` name; each needs a
+    `crossover` in the config (protection filters marked protect=true). planes: ['hor'] or
+    ['hor', 'ver']. symmetric=True measures one side only. Then call `speaker_step` repeatedly."""
+    from .engine.speaker import angles_for
+    rt = runtime()
+    st = rt.speaker.plan(speaker, angles_for(planes or ["hor"], step_deg, max_deg, symmetric), distance_m)
+    return {"ok": True, "drivers": st.drivers, "angles": len(st.points),
+            "sweeps": len(st.points) * len(st.drivers)}
+
+
+@mcp.tool()
+async def speaker_step() -> dict:
+    """Advance the speaker capture: either asks the user to rotate (status user_action_required: relay
+    action.instructions, then call `speaker_confirm`), or sweeps every driver raw at the current angle."""
+    rt = runtime()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return _clean(await rt.speaker.step())
+
+
+@mcp.tool()
+async def speaker_confirm(key: str | None = None) -> dict:
+    """The user rotated the speaker as asked. Then call `speaker_step` again."""
+    rt = runtime()
+    st = rt.speaker.state()
+    sim = []
+    if st is not None and not st.done and st.rotated_to != st.index:
+        sim = rt.apply_sim_effects(rt.speaker._ask(st)["action"], None)
+    res = rt.speaker.confirm(key)
+    if sim:
+        res["simulated_effects"] = sim
+    return res
+
+
+@mcp.tool()
+async def speaker_nearfield(driver: str, label: str = "nf") -> dict:
+    """Sweep one driver (raw) with the mic close to it: a few mm from the woofer dust cap, or in the port
+    mouth (label 'port'). Exported as its own FRD for VituixCAD's Merger, which fills in below the
+    far-field gate limit."""
+    rt = runtime()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return await rt.speaker.nearfield(driver, label)
+
+
+@mcp.tool()
+async def export_frd(out_dir: str | None = None, gate_ms: float = 5.0, pre_ms: float = 1.0,
+                     ppo: int = 48) -> dict:
+    """Write the captured set as VituixCAD FRDs ('<speaker>_<driver> hor 30.frd') plus
+    rewdio_session.json, the manifest SoundSible reads. One common delay is removed from every file,
+    so in VituixCAD set every driver's X/Y/Z offset to 0. gate_ms: up to the first reflection."""
+    from .analysis.frd import Gate
+    rt = runtime()
+    return _clean(rt.speaker.export(out_dir, Gate(pre_ms=pre_ms, gate_ms=gate_ms), ppo=ppo))
+
+
+@mcp.tool()
+async def speaker_report(gate_ms: float = 5.0, band_lo_hz: float = 300.0, band_hi_hz: float = 10000.0) -> dict:
+    """Spinorama (on-axis, listening window, early reflections, sound power, PIR, directivity indices)
+    of the captured drivers summed through the configured crossover, and the single-speaker targets:
+    flat listening window, PIR falling ~0.5 to 1 dB/octave, smooth sound-power directivity."""
+    from .analysis.frd import Gate
+    rt = runtime()
+    return _clean(rt.speaker.report(Gate(gate_ms=gate_ms), (band_lo_hz, band_hi_hz)))
 
 
 @mcp.tool()

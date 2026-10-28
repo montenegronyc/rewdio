@@ -87,6 +87,27 @@ def linkwitz_riley4(kind: Literal["LP", "HP"], fc: float, fs: float) -> list[Biq
     return [design(kind, fc, fs, q=1 / math.sqrt(2))] * 2
 
 
+XoverTopology = Literal["BW2", "BW4", "LR2", "LR4", "LR8"]
+
+# Section Qs per topology: Butterworth poles, and Linkwitz-Riley as a Butterworth squared (LR2 = two
+# first-order sections = one biquad at Q 0.5).
+_XOVER_QS: dict[str, list[float]] = {
+    "BW2": [1 / math.sqrt(2)],
+    "BW4": [0.5411961, 1.3065630],
+    "LR2": [0.5],
+    "LR4": [1 / math.sqrt(2)] * 2,
+    "LR8": [0.5411961, 1.3065630] * 2,
+}
+
+
+def crossover_sections(kind: Literal["LP", "HP"], topology: XoverTopology, fc: float, fs: float) -> list[Biquad]:
+    """Biquad sections for one crossover filter. LR2 is the one odd case: its HP is inverted relative to
+    the LP, as in every LR2 crossover, so pair it with a polarity flip."""
+    if topology not in _XOVER_QS:
+        raise ValueError(f"unknown crossover topology {topology}; use one of {sorted(_XOVER_QS)}")
+    return [design(kind, fc, fs, q=q) for q in _XOVER_QS[topology]]
+
+
 def cascade_response(biquads: list[Biquad], freqs: np.ndarray, fs: float) -> np.ndarray:
     h = np.ones(np.asarray(freqs).shape, dtype=complex)
     for bq in biquads:

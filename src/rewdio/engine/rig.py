@@ -8,7 +8,7 @@ from ..analysis.response import Response, log_grid
 from ..analysis.waterfall import keep_ir
 from ..config import SystemConfig, TimingMode
 from ..minidsp.client import MiniDSPClient
-from ..minidsp.state import DspState, OutputState
+from ..minidsp.state import DspState, OutputState, XoverFilter, xover_sections
 from ..rew.client import RewClient, RewError
 from .store import MeasurementRecord, Session
 
@@ -40,15 +40,35 @@ class Rig:
         out = self.cfg.channel(role).dsp_output
         if mute_only:
             return MiniDSPClient.output_patch(out, mute=o.mute)
-        peq = None
-        if include_peq:
+        peq = xo = None
+        if include_peq:  # the filter blocks: PEQ, and the crossover where Rewdio manages it
             fs = self.cfg.dsp_sample_rate
             peq = {slot: (o.peq[slot].biquad(fs) if slot in o.peq else None) for slot in self.cfg.peq_slots_for(role)}
-        return MiniDSPClient.output_patch(out, gain_db=o.gain_db, mute=o.mute, delay_ms=o.delay_ms, invert=o.invert, peq=peq)
+            if self.cfg.channel(role).crossover is not None:
+                xo = xover_sections(o.crossover or [], fs)
+        return MiniDSPClient.output_patch(out, gain_db=o.gain_db, mute=o.mute, delay_ms=o.delay_ms, invert=o.invert,
+                                          peq=peq, crossover=xo)
+
+    def _check_protection(self, new: DspState) -> bool:
+        """A protection filter (e.g. a compression driver's high-pass) may never leave the hardware. A managed
+        channel whose crossover is unknown (older session state) gets its configured crossover; returns True
+        then, so the caller writes it rather than only recording it."""
+        filled = False
+        for c in self.cfg.channels:
+            if c.crossover is not None and new.get(c.role).crossover is None:
+                new.get(c.role).crossover = list(c.crossover)
+                filled = True
+            need = [f for f in c.crossover or [] if f.protect]
+            have = new.get(c.role).crossover or []
+            missing = [f for f in need if f not in have]
+            if missing:
+                raise ValueError(f"refusing to write {c.role} without its protection filter(s) "
+                                 f"{[f.model_dump() for f in missing]}")
+        return filled
 
     async def _commit(self, new: DspState, roles: list[str] | None = None, mute_only: bool = False,
                       include_peq: bool = True) -> None:
-        if self.dirty:  # an earlier write failed part-way: re-send everything
+        if self._check_protection(new) or self.dirty:  # unknown crossover filled, or a failed write: send everything
             roles, mute_only, include_peq = None, False, True
         targets = [c.role for c in self.cfg.channels if roles is None or c.role in roles]
         patches = [self._patch(r, new.get(r), mute_only, include_peq) for r in targets]
@@ -70,7 +90,8 @@ class Rig:
 
     async def assert_baseline(self) -> None:
         b = self.cfg.baseline
-        await self._commit(DspState(outputs={c.role: OutputState(gain_db=b.gain_db, delay_ms=b.delay_ms, invert=b.invert)
+        await self._commit(DspState(outputs={c.role: OutputState(gain_db=b.gain_db, delay_ms=b.delay_ms, invert=b.invert,
+                                                                 crossover=c.crossover)
                                              for c in self.cfg.channels}))
 
     async def apply(self, state: DspState, listen: bool = False) -> None:
@@ -95,6 +116,20 @@ class Rig:
         o.gain_db = min(max(o.gain_db, lo), hi)
         o.delay_ms = min(max(o.delay_ms, 0.0), self.cfg.dsp_max_delay_ms)
         await self._commit(new, [role], include_peq=False)
+        return self.s.dsp.get(role)
+
+    async def set_crossover(self, role: str, filters: list[XoverFilter] | None = None, raw: bool = False) -> OutputState:
+        """Write a channel's crossover: `filters`, else its configured crossover. raw=True keeps only the
+        protection filters, for capturing the driver itself. Protection filters can never be dropped."""
+        ch = self.cfg.channel(role)
+        if ch.crossover is None:
+            raise ValueError(f"{role} has no `crossover` in the config, so Rewdio does not manage its crossover")
+        want = list(filters if filters is not None else ch.crossover)
+        if raw:
+            want = [f for f in want if f.protect]
+        new = self._copy()
+        new.get(role).crossover = want
+        await self._commit(new, [role])
         return self.s.dsp.get(role)
 
     async def solo(self, roles: list[str]) -> None:
