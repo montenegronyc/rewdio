@@ -23,6 +23,7 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 from ..analysis.frd import FrdFile, Gate, arrival_s, gated_response, remove_protection, vituix_name
+from ..analysis.spin import evaluate, spinorama
 from ..config import ChannelKind
 from ..minidsp.biquad import cascade_response
 from ..minidsp.state import XoverFilter, xover_sections
@@ -223,13 +224,12 @@ class SpeakerCapture:
         rec = next(m for m in self.s.measurements if m.id == mid)
         return [f for f in (rec.snapshot.get(driver).crossover or []) if f.protect]
 
-    def export(self, out_dir: str | Path | None = None, gate: Gate | None = None, ppo: int = 48,
-               f_lo: float = 10.0, f_hi: float = 24000.0, t_ref_s: float | None = None) -> dict:
-        st = self._require()
+    def _gated_set(self, st: SpeakerState, gate: Gate, ppo: int, f_lo: float, f_hi: float,
+                   t_ref_s: float | None) -> tuple[np.ndarray, float, list[str], list[tuple]]:
+        """Every capture gated on one absolute window, protection divided out: (freqs, t_ref, notes,
+        [(capture, h, protection filters, protection note)])."""
         if not st.captures:
             raise ValueError("nothing captured yet")
-        gate = gate or Gate()
-        out = Path(out_dir).expanduser() if out_dir else self.s.dir / "frd" / st.speaker
         fs_dsp = self.s.config.dsp_sample_rate
         irs = {c.id: self._raw_ir(c.id) for c in st.captures}
         nyq = min(fs for _, fs, _ in irs.values()) / 2
@@ -245,7 +245,7 @@ class SpeakerCapture:
             notes.append(f"first arrival at {t_ref_s * 1000:.2f} ms, but {st.distance_m:g} m is "
                          f"{expected * 1000:.2f} ms: DSP latency or a wrong distance; phase is still consistent")
 
-        files, entries = [], []
+        rows = []
         for c in st.captures:
             ir, fs, t0 = irs[c.id]
             h = gated_response(ir, fs, freqs, t_ref_s, gate, t0_s=t0)
@@ -256,6 +256,17 @@ class SpeakerCapture:
                 lo = float(freqs[first]) if first is not None else None
                 prot_note = (f"divided out ({', '.join(f'{f.topology} {f.kind} {f.freq_hz:g} Hz' for f in prot)}); "
                              f"magnitude fully corrected above {lo:.0f} Hz" if lo else "divided out")
+            rows.append((c, h, prot, prot_note))
+        return freqs, t_ref_s, notes, rows
+
+    def export(self, out_dir: str | Path | None = None, gate: Gate | None = None, ppo: int = 48,
+               f_lo: float = 10.0, f_hi: float = 24000.0, t_ref_s: float | None = None) -> dict:
+        st = self._require()
+        gate = gate or Gate()
+        out = Path(out_dir).expanduser() if out_dir else self.s.dir / "frd" / st.speaker
+        freqs, t_ref_s, notes, rows = self._gated_set(st, gate, ppo, f_lo, f_hi, t_ref_s)
+        files, entries = [], []
+        for c, h, prot, prot_note in rows:
             path = out / vituix_name(st.speaker, c.driver, c.plane, c.angle)
             hdr = [f"Rewdio raw driver capture: {st.speaker} {c.driver} {c.plane} {c.angle:g} deg",
                    f"REW measurement {c.id}; loopback time base; common delay removed {t_ref_s * 1000:.4f} ms",
@@ -283,6 +294,39 @@ class SpeakerCapture:
         mpath.write_text(json.dumps(manifest, indent=1))
         return {"ok": True, "dir": str(out), "files": len(files), "nearfield": len(nf_entries),
                 "manifest": str(mpath), "t_ref_ms": round(t_ref_s * 1000, 4), "notes": notes}
+
+    def report(self, gate: Gate | None = None, band_hz: tuple[float, float] = (300.0, 10000.0),
+               ppo: int = 24) -> dict:
+        """Spinorama of the measured drivers summed through the CONFIGURED crossover and the current
+        gain/delay/polarity/PEQ, plus the single-speaker targets. Also each driver alone, for diagnosis."""
+        st = self._require()
+        gate = gate or Gate()
+        freqs, _, notes, rows = self._gated_set(st, gate, ppo, 20.0, 20000.0, None)
+        fs_dsp = self.s.config.dsp_sample_rate
+        xfer = {}
+        for d in st.drivers:
+            o = self.s.dsp.get(d).model_copy(deep=True)
+            o.crossover = list(self.s.config.channel(d).crossover or [])
+            xfer[d] = o.transfer(freqs, fs_dsp)
+        system: dict[tuple, np.ndarray] = {}
+        per: dict[str, dict[tuple, np.ndarray]] = {d: {} for d in st.drivers}
+        for c, h, _, _ in rows:
+            k = (c.plane, c.angle)
+            per[c.driver][k] = h
+        for k in set().union(*[set(v) for v in per.values()]):
+            if all(k in per[d] for d in st.drivers):  # only directions where every driver was measured
+                system[k] = sum(per[d][k] * xfer[d] for d in st.drivers)
+        spin = spinorama(system)
+        curves = spin["curves"]
+        valid = freqs >= max(gate.valid_from_hz, band_hz[0])
+        ev = evaluate(freqs[valid], {k: v[valid] for k, v in curves.items()},
+                      (max(band_hz[0], gate.valid_from_hz), band_hz[1]))
+        return {"speaker": st.speaker, "targets": ev, "notes": notes + spin["notes"],
+                "freqs": [round(float(f), 2) for f in freqs],
+                "curves_db": {k: [round(float(x), 2) for x in v] for k, v in curves.items()},
+                "drivers_on_axis_db": {d: [round(float(x), 2) for x in 20 * np.log10(np.maximum(
+                    np.abs(per[d].get(("hor", 0.0), np.full(freqs.size, 1e-12)) * xfer[d]), 1e-12))]
+                    for d in st.drivers}}
 
     def _manifest(self, st: SpeakerState, gate: Gate, t_ref_s: float, entries: list[dict], nf: list[dict],
                   freqs: np.ndarray, notes: list[str]) -> dict:

@@ -328,6 +328,16 @@ async def export_frd(out_dir: str | None = None, gate_ms: float = 5.0, pre_ms: f
 
 
 @mcp.tool()
+async def speaker_report(gate_ms: float = 5.0, band_lo_hz: float = 300.0, band_hi_hz: float = 10000.0) -> dict:
+    """Spinorama (on-axis, listening window, early reflections, sound power, PIR, directivity indices)
+    of the captured drivers summed through the configured crossover, and the single-speaker targets:
+    flat listening window, PIR falling ~0.5 to 1 dB/octave, smooth sound-power directivity."""
+    from .analysis.frd import Gate
+    rt = runtime()
+    return _clean(rt.speaker.report(Gate(gate_ms=gate_ms), (band_lo_hz, band_hi_hz)))
+
+
+@mcp.tool()
 async def solo(roles: list[str]) -> dict:
     """Unmute only these channels; mute the rest."""
     rt = runtime()

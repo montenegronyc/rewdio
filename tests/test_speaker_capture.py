@@ -124,3 +124,19 @@ async def test_nearfield_is_exported_for_the_merger(sim_runtime, tmp_path):
     await rt.speaker.nearfield("LW", "nf")
     res = rt.speaker.export(tmp_path)
     assert res["nearfield"] == 1 and (tmp_path / "L_LW nf.frd").exists()
+
+
+async def test_report_sums_drivers_through_the_configured_crossover(sim_runtime):
+    rt = sim_runtime()
+    _rig(rt)
+    await rt.rig.assert_baseline()
+    await _run(rt, angles_for(["hor"], step_deg=10, max_deg=90, symmetric=True))
+    rep = rt.speaker.report(Gate(gate_ms=4.0), band_hz=(300.0, 5000.0))
+    assert set(rep["curves_db"]) == {"on_axis", "lw", "er", "sp", "pir", "erdi", "spdi"}
+    assert set(rep["targets"]) >= {"lw", "pir", "spdi", "ok"}
+    assert any("horizontal plane only" in n for n in rep["notes"])
+    f = np.asarray(rep["freqs"])
+    on = np.asarray(rep["curves_db"]["on_axis"])
+    lw_, lh_ = (np.asarray(rep["drivers_on_axis_db"][d]) for d in ("LW", "LH"))
+    i = int(np.argmin(np.abs(f - 3000)))  # an octave above the 1.5 kHz LR4 crossover the horn dominates
+    assert abs(on[i] - lh_[i]) < 1.0 and lw_[i] < lh_[i] - 15

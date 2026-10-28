@@ -40,6 +40,33 @@ This is a separate workflow from the room calibration. The autopilot does not ch
    band, delay removed, protection removed, DSP state during capture) so SoundSible can load the
    measured drivers in place of the ideal ones.
 
+## Config and tool flow
+
+Each driver is a channel of kind `driver` with the speaker it belongs to and the crossover Rewdio
+writes. The horn's guard high-pass is marked `protect`, so no write can ever remove it:
+
+```json
+"channels": [
+  {"role": "LW", "kind": "driver", "speaker": "L", "dsp_output": 0,
+   "crossover": [{"kind": "LP", "topology": "LR4", "freq_hz": 1200}]},
+  {"role": "LH", "kind": "driver", "speaker": "L", "dsp_output": 1,
+   "crossover": [{"kind": "HP", "topology": "LR4", "freq_hz": 1200},
+                 {"kind": "HP", "topology": "BW2", "freq_hz": 600, "protect": true}]}
+],
+"timing_mode": "loopback",
+"timing_reference_channel": "LW"
+```
+
+Then, from Claude:
+
+1. `speaker_plan(speaker="L", planes=["hor"], step_deg=10, distance_m=2)`
+2. `speaker_step` repeatedly. It asks the user to rotate (relay it, then `speaker_confirm`), or
+   sweeps every driver raw at the current angle. A clipped or noisy sweep repeats that angle.
+3. Optional: `speaker_nearfield(driver="LW")`, `speaker_nearfield(driver="LW", label="port")`.
+4. `export_frd(out_dir=..., gate_ms=5)`: FRDs plus `rewdio_session.json`.
+5. `speaker_report`: spinorama curves and targets for the measured drivers through the configured
+   crossover.
+
 ZMA files are not produced: with active filters on the miniDSP, VituixCAD does not need driver
 impedance. Add them only if a passive version is ever on the table.
 
