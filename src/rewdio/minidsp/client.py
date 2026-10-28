@@ -12,6 +12,8 @@ import httpx
 
 from .biquad import Biquad
 
+XOVER_GROUP = 4  # biquads per crossover group; minidsp-rs addresses (group, index)
+
 
 class MiniDSPError(RuntimeError):
     pass
@@ -70,8 +72,10 @@ class MiniDSPClient:
     @staticmethod
     def output_patch(index: int, *, gain_db: float | None = None, mute: bool | None = None,
                      delay_ms: float | None = None, invert: bool | None = None,
-                     peq: dict[int, Biquad | None] | None = None) -> dict:
-        """Build one output entry. A PEQ slot mapped to None is bypassed."""
+                     peq: dict[int, Biquad | None] | None = None,
+                     crossover: list[Biquad] | None = None) -> dict:
+        """Build one output entry. A PEQ slot mapped to None is bypassed. `crossover` (if given) fills the
+        output's crossover block from slot 0; unused slots are reset to unity and an empty group is bypassed."""
         out: dict[str, Any] = {"index": index}
         if gain_db is not None:
             out["gain"] = round(float(gain_db), 2)
@@ -87,6 +91,16 @@ class MiniDSPClient:
                 else {"index": slot, "bypass": False, "coeff": bq.to_minidsp()}
                 for slot, bq in sorted(peq.items())
             ]
+        if crossover is not None:
+            if len(crossover) > 2 * XOVER_GROUP:
+                raise ValueError(f"{len(crossover)} crossover biquads; the block holds {2 * XOVER_GROUP}")
+            groups = []
+            for g in range(2):
+                sec = crossover[g * XOVER_GROUP:(g + 1) * XOVER_GROUP]
+                coeff = sec + [Biquad.identity()] * (XOVER_GROUP - len(sec))
+                groups.append({"index": g, "bypass": not sec,
+                               "coeff": [{"index": i, **bq.to_minidsp()} for i, bq in enumerate(coeff)]})
+            out["crossover"] = groups
         return out
 
     async def set_master(self, *, volume_db: float | None = None, mute: bool | None = None,

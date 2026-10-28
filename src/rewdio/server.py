@@ -12,6 +12,7 @@ from .analysis.metrics import summarize
 from .dashboard.app import serve_in_background
 from .engine import dsp_setups, setup
 from .engine.runtime import Runtime
+from .minidsp.state import XoverFilter
 from .prompts import register as register_prompts
 
 INSTRUCTIONS = """\
@@ -241,6 +242,23 @@ async def set_channel(role: str, gain_db: float | None = None, delay_ms: float |
             return BUSY
         o = await rt.rig.set_channel(role, gain_db=gain_db, delay_ms=delay_ms, invert=invert, mute=mute)
     return {"role": role, **o.model_dump(mode="json")}
+
+
+@mcp.tool()
+async def set_crossover(role: str, filters: list[dict] | None = None, raw: bool = False) -> dict:
+    """Write a channel's crossover block. Only for channels with `crossover` in the config.
+
+    filters: [{"kind": "HP"|"LP", "topology": "LR4"|"LR8"|"LR2"|"BW2"|"BW4", "freq_hz": 1200,
+    "protect": false}]; omit to restore the configured crossover. raw=True keeps only protection
+    filters (for measuring the driver itself). A protection filter can never be removed."""
+    rt = runtime()
+    rt.session.config.channel(role)
+    parsed = [XoverFilter.model_validate(f) for f in filters] if filters is not None else None
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        o = await rt.rig.set_crossover(role, parsed, raw=raw)
+    return {"role": role, "crossover": [f.model_dump() for f in o.crossover or []]}
 
 
 @mcp.tool()

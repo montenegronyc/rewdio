@@ -112,7 +112,9 @@ class DspOutput:
     delay_ms: float = 0.0
     invert: bool = False
     peq: dict[int, Biquad] = field(default_factory=dict)
-    xover: list[Biquad] = field(default_factory=list)  # the user's own crossover, invisible to Rewdio
+    xover: list[Biquad] = field(default_factory=list)  # active crossover: the scenario's own until Rewdio writes one
+    xslots: dict[tuple[int, int], Biquad] = field(default_factory=dict)  # crossover (group, index) as written
+    xbypass: dict[int, bool] = field(default_factory=dict)
     routing: tuple[float, float] = (1.0, 0.0)  # weights of DSP inputs 0 (L) and 1 (R)
 
     def transfer(self, f: np.ndarray, fs: float) -> np.ndarray:
