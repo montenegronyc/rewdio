@@ -77,13 +77,15 @@ geometry to simulate the exact setup. Agreed on the `inbox` branch (`DECISIONS.m
   centre of the woofer box, metres): `pivot_xyz` (default: the origin), `mic_xyz` or
   `mic_distance_m` + `mic_height_m` + `origin_height_m`, `riser_h`, `horn_offset_m`,
   `horn_stem_lift_m`, `horn_id` (a SoundSible variant key or `stock:<name>`), `horn_stl`,
-  `series_cap_uf`, `series_cap_in_circuit`. Environment: `temperature_c`, `indoor`, `site`,
+  `series_cap_uf`, `series_cap_in_circuit` (no value given means no cap; while prototyping on the
+  miniDSP the protection high-pass does the cap's job). Environment: `temperature_c`, `indoor`, `site`,
   `soundsible_commit`; the start time is recorded in ET.
 - Vertical plane: the speaker lies on its right side on the same pivot; positive `ver` = above the axis.
 - `speaker_impedance(driver, series_cap_uf=..., cap_in_circuit=False)`: mounted ZMA on a jig. If REW
   refuses an impedance sweep over its API, take it in REW's GUI and pass `rew_measurement_id`.
-- `speaker_distortion(driver, spl_db=[85, 95])`: H2/H3/THD at each SPL at the mic (seat: 1.778 m).
-  Targets within 3 dB of REW's SPL abort limit (`sweep.max_spl_db`) are refused.
+- `speaker_distortion(driver)`: H2/H3/THD at 85, 90 and 95 dB SPL at the mic (seat: 1.778 m). Lee never
+  listens above 95 dB, so targets above 95 are refused, as are targets within 3 dB of REW's SPL abort
+  limit (`sweep.max_spl_db`).
 - Gate check: each FRD reports the band that stays within 0.5 dB when the gate end moves +1/+2 ms
   (`valid_band_hz`), beside the 1/T floor. The ground bounce is checked against the gate.
 - `export_frd(root=...)` writes `<root>/measurements/<date>_<site>_<variant>/`: the manifest at the

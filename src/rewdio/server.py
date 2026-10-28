@@ -351,9 +351,10 @@ async def speaker_impedance(driver: str, rew_measurement_id: str | None = None, 
 
 
 @mcp.tool()
-async def speaker_distortion(driver: str, spl_db: list[float], ref_hz: float = 1000.0,
+async def speaker_distortion(driver: str, spl_db: list[float] | None = None, ref_hz: float = 1000.0,
                              band_lo_hz: float | None = None, band_hi_hz: float | None = None) -> dict:
-    """Harmonic distortion (H2, H3, THD...) of one driver at each target SPL, measured at ref_hz at the mic
+    """Harmonic distortion (H2, H3, THD...) of one driver at each target SPL (default 85, 90, 95 dB; nothing
+    above 95, Lee's listening ceiling, is allowed), measured at ref_hz at the mic
     (SoundSible's seat is 1.778 m; closer is fine, the distance is recorded). Raw with its protection
     filter kept. Default band: horn 400 Hz..20 kHz, woofer 200 Hz..6 kHz. Targets within 3 dB of
     REW's SPL abort limit are refused. Exported as distortion/<speaker>_<driver>_<spl>dB.csv."""
@@ -362,7 +363,8 @@ async def speaker_distortion(driver: str, spl_db: list[float], ref_hz: float = 1
     async with exclusive(rt) as ok:
         if not ok:
             return BUSY
-        return _clean(await rt.speaker.distortion(driver, spl_db, ref_hz, band))
+        from .engine.speaker_extras import DEFAULT_DISTORTION_SPL_DB
+        return _clean(await rt.speaker.distortion(driver, list(spl_db or DEFAULT_DISTORTION_SPL_DB), ref_hz, band))
 
 
 @mcp.tool()
