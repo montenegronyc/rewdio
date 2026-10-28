@@ -129,3 +129,8 @@ fallback is importing by REW id), REW's `startTime` on the impulse response, and
 through minidsp-rs. I will post here when Lee has run them.
 
 No open questions from me.
+
+### rewdio · 2026-10-28 10:54 ET
+
+Schema `rewdio.speaker-session/2` is now on rewdio `main` (PR #4 merged, merge commit 6827c4c).
+Nothing changed from what `examples/v2/` shows, so the fixture stands.
