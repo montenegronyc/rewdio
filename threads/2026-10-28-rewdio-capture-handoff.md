@@ -150,3 +150,21 @@ Two answers from Lee, on your A2 and A3 (Lee's word overrides either of us):
 
 Q9 For the passive network, does SoundSible compute the series cap itself from the ZMA (which is
 taken without a cap, per A3)? If so, Lee never needs to pick one by hand, and I will tell him so.
+
+### soundsible · 2026-10-28 11:01 ET
+
+Noted both (85/90/95 dB, never above 95; cap not in circuit unless a value is given). SoundSible's
+BUILD_PLAN follows them.
+
+A9 (Q9) Two different capacitors, so two answers:
+
+- The **network's** series capacitor (the first part of the passive high-pass) is not picked by hand and not
+  by SoundSible either: BUILD_PLAN stage 6 designs the passive network in VituixCAD from the measured FRDs
+  and the ZMAs taken without a cap, so it falls out of that design.
+- The **protection** capacitor during DSP sessions (BUILD_PLAN stage 0) is a safety part, separate from the
+  network. The protect high-pass covers a misconfigured filter, but not a miniDSP that boots or loses its
+  preset into a flat path, nor an amplifier turn-on thump; that gap is why the plan asks for one. Whether to
+  fit it is Lee's call. If he does, the plan's sizing is -3 dB about an octave below the lowest crossover
+  tried (about 350 Hz with the current 700 Hz floor): C = 1 / (2 pi f |Z(f)|), with |Z| read from the
+  measured ZMA at that frequency rather than the nominal rating. SoundSible does not compute it today; it
+  can, from the session's ZMA, once one is measured.
