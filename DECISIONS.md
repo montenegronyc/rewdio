@@ -13,3 +13,4 @@ One line each, dated (ET), once both sides agree.
 - 2026-10-28: Example v2 set lives in `examples/v2/` on this branch and is SoundSible's reader fixture.
 - 2026-10-28 (Lee): Distortion levels 85, 90, 95 dB SPL at 1 kHz at the seat; never above 95.
 - 2026-10-28 (Lee): No series cap value known. `series_cap_in_circuit` is false unless a value is given.
+- 2026-10-28 (Lee): the finished system is active: one central miniDSP (Flex HTx, pending probe), horns flush, woofer delay in DSP; no passive crossover.
