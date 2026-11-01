@@ -40,6 +40,8 @@ class Channel(_Strict):
     role: str = Field(description="Short name, e.g. L, R, SUB1, SUB2")
     kind: ChannelKind
     dsp_output: int = Field(ge=0, description="0-based miniDSP output index")
+    dsp_device: int | None = Field(default=None, ge=0, description="minidsp-rs device index when two units are "
+                                                                   "used (e.g. towers + subs); null = minidsp_device_index")
     rew_output_channel: str | None = Field(
         default=None, description="REW output channel for this speaker; null = leave REW's selection alone")
     speaker: str | None = Field(default=None, description="Driver channels: the speaker they belong to, e.g. 'L'")
@@ -85,6 +87,14 @@ class SweepSettings(_Strict):
     fill_silence_with_dither: bool = Field(
         description="Keep the digital stream alive between sweeps so an S/PDIF DAC stays locked")
     rew_sample_rate: int = Field(description="REW's audio sample rate, used to size the sweep timeout")
+
+    @model_validator(mode="after")
+    def _levels(self) -> SweepSettings:
+        if not self.min_level_dbfs <= self.level_dbfs <= self.max_level_dbfs <= 0:
+            raise ValueError("sweep levels must satisfy min_level_dbfs <= level_dbfs <= max_level_dbfs <= 0 dBFS")
+        if not 60 <= self.max_spl_db <= 120:
+            raise ValueError("sweep.max_spl_db is REW's SPL abort limit, the drivers' safety net: 60 to 120 dB")
+        return self
 
 
 class RewClientSettings(_Strict):
@@ -309,6 +319,14 @@ class CrawlGrid(_Strict):
     max_cells: int = Field(ge=3, description="Safety cap on how many cells one crawl may visit")
 
 
+class SpeakerPrompts(_Strict):
+    settle_s: float = Field(ge=0, le=30, description="Wait after Ready before a speaker sweep (footsteps, voice)")
+    mac_device: str | None = Field(description="Audio output for spoken turntable prompts on this computer (`say -a`); "
+                                               "null = no Mac voice. Never the interface REW plays through")
+    mac_voice: str | None = Field(description="`say` voice; null = the best installed en_GB female voice")
+    mute: bool = Field(description="Silence the Mac voice (the phone has its own switch)")
+
+
 class SetupLibrary(_Strict):
     dir: str | None = Field(description="Folder for named, dated DSP setups; null = <REWDIO_HOME>/setups")
     autosave_on_done: bool = Field(description="Save the finished calibration as a setup automatically")
@@ -352,6 +370,7 @@ class SystemConfig(_Strict):
     balance: BalanceSettings
     dashboard: DashboardSettings
     setups: SetupLibrary
+    speaker_prompts: SpeakerPrompts
     tuning: Tuning
 
     @model_validator(mode="after")
@@ -359,9 +378,9 @@ class SystemConfig(_Strict):
         roles = [c.role for c in self.channels]
         if len(set(roles)) != len(roles):
             raise ValueError(f"channel roles must be unique: {roles}")
-        outs = [c.dsp_output for c in self.channels]
+        outs = [(self.device_of(c.role), c.dsp_output) for c in self.channels]
         if len(set(outs)) != len(outs):
-            raise ValueError(f"each channel needs its own miniDSP output: {outs}")
+            raise ValueError(f"each channel needs its own miniDSP output (device, output): {outs}")
         per = [c.rew_output_channel for c in self.channels]
         if any(per) and not all(per):
             raise ValueError("set rew_output_channel on every channel or on none (mixing leaves REW on the wrong output)")
@@ -377,10 +396,19 @@ class SystemConfig(_Strict):
         return self
 
     def peq_slots_for(self, role: str) -> list[int]:
-        """Subs use peq_slots (bass EQ); mains use balance.peq_slots (L/R balance); drivers get none yet."""
+        """Subs use peq_slots (bass EQ); mains use balance.peq_slots (L/R balance). Driver outputs: all ten, so
+        nothing left over from room calibration or the miniDSP plugin colours a driver capture unrecorded."""
         if self.channel(role).kind == ChannelKind.DRIVER:
-            return []
+            return list(range(10))
         return self.peq_slots if self.channel(role).kind == ChannelKind.SUB else self.balance.peq_slots
+
+    def device_of(self, role: str) -> int:
+        c = self.channel(role)
+        return self.minidsp_device_index if c.dsp_device is None else c.dsp_device
+
+    @property
+    def dsp_devices(self) -> list[int]:
+        return sorted({self.device_of(c.role) for c in self.channels})
 
     def channel(self, role: str) -> Channel:
         for c in self.channels:

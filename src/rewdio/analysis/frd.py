@@ -15,6 +15,7 @@ written (VituixCAD wants a full band) but flagged in the header; near-field capt
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -25,7 +26,7 @@ PROTECTION_FLOOR_DB = -30.0  # dividing out a protection HP below this would onl
 
 @dataclass
 class Gate:
-    pre_ms: float = 1.0  # before t_ref: room for drivers that arrive earlier than the reference
+    pre_ms: float = 2.0  # before t_ref: room for drivers that arrive earlier than the reference (beyond the taper)
     gate_ms: float = 5.0  # after t_ref: up to just before the first reflection
     taper_ms: float = 0.5  # half-Hann at each end
 
@@ -52,20 +53,28 @@ def gated_response(ir: np.ndarray, fs: float, freqs: np.ndarray, t_ref_s: float,
         raise ValueError(f"gate [{a}, {b}) falls outside the impulse response (0..{ir.size}); "
                          "check the timing reference and t_ref")
     x = ir[a:b].copy()
-    nt_in = max(1, min(int(gate.pre_ms * fs / 1000), x.size // 4))
+    # the fade-in is a short taper at the very start of the pre-window, so sound arriving before t_ref (a driver
+    # nearer the mic than the reference, e.g. off-axis in the vertical plane) passes at full level
+    nt_in = max(1, min(int(gate.taper_ms * fs / 1000), x.size // 4))
     nt_out = max(1, min(int(gate.taper_ms * fs / 1000), x.size // 4))
     ramp = lambda k: 0.5 - 0.5 * np.cos(np.linspace(0, np.pi, k))  # noqa: E731
     x[:nt_in] *= ramp(nt_in)
     x[-nt_out:] *= ramp(nt_out)[::-1]
     # Evaluate the DTFT directly at the requested frequencies, with sample times on the absolute
-    # axis minus the common delay. Direct evaluation avoids interpolating a rotating phase.
-    t = t0_s + (a + np.arange(x.size)) / fs - remove_s
+    # axis minus the common delay. Direct evaluation avoids interpolating a rotating phase. The kernel
+    # exp(-2 pi i f n / fs) depends only on (freqs, fs, length) and is reused across a whole capture set;
+    # where the window starts is one phase factor per frequency.
     f = np.asarray(freqs, float)
-    out = np.empty(f.size, complex)
-    for i in range(0, f.size, 256):  # chunked: bounded memory for long gates and dense grids
-        fc = f[i:i + 256]
-        out[i:i + 256] = np.exp(-2j * np.pi * np.outer(fc, t)) @ x
-    return out
+    cos_k, sin_k = _kernel(f.tobytes(), float(fs), x.size)
+    start = t0_s + a / fs - remove_s
+    return np.exp(-2j * np.pi * f * start) * (cos_k @ x - 1j * (sin_k @ x))
+
+
+@lru_cache(maxsize=8)
+def _kernel(freqs_bytes: bytes, fs: float, n: int) -> tuple[np.ndarray, np.ndarray]:
+    f = np.frombuffer(freqs_bytes, float)
+    ph = 2 * np.pi * np.outer(f, np.arange(n)) / fs
+    return np.cos(ph), np.sin(ph)
 
 
 def remove_protection(h: np.ndarray, protection: np.ndarray) -> tuple[np.ndarray, float | None]:

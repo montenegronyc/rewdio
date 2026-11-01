@@ -11,12 +11,19 @@ export type Crawl = {
   progress: { done: number; total: number }; best_pairs: Pair[]; place: Record<string, string> | null;
 };
 export type Action = { key: string; instructions: string; cell?: string | null; place?: Record<string, string> };
+export type SpeakerPrompt = { key: string; instructions: string; speech: string; plane: string; target: number; move_deg: number };
+export type Speaker = {
+  speaker: string; variant: string; done: boolean; waiting: boolean; prompt: SpeakerPrompt | null;
+  progress: { done: number; total: number };
+  last: { status: string; speech: string; at: number; error?: string } | null;
+  mac_voice: { device: string | null; problem: string | null };
+};
 export type State = {
   phase: string; pass: number; done: boolean; sweeps: number; busy: boolean; version: number;
   pending_action: Action | null; crawl: Crawl | null; simulated: boolean;
   last_status?: string | null; last_error?: string | null; measured_ok: boolean | null;
   metrics: Record<string, any> | null; fails: string[] | null; log: string[]; dsp: Record<string, any>;
-  curves: Record<string, Curves>;
+  curves: Record<string, Curves>; speaker: Speaker | null;
 };
 export type Point = [number, number];
 export type Curves = { predicted?: Point[]; measured?: Point[]; target?: Point[] };
@@ -60,6 +67,7 @@ async function post(path: string, body: unknown = {}) {
 
 export const confirm = (key?: string) => post("/api/confirm", key ? { key } : {});
 export const step = () => post("/api/step");
+export const speakerReady = (key?: string) => post("/api/speaker/ready", key ? { key } : {});
 export const setCell = (code: string, enabled: boolean) => post("/api/crawl/cell", { code, enabled });
 export const pairing = async () => (await fetch("/api/pair")).ok ? (await fetch("/api/pair")).json() : null;
 export const eventsUrl = () => `/api/events?t=${encodeURIComponent(token())}`;

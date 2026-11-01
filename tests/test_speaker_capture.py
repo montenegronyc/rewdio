@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from rewdio.analysis.frd import Gate, read_frd
-from rewdio.config import Channel, ChannelKind
+from rewdio.config import Channel, ChannelKind, TimingMode
 from rewdio.engine.speaker import angles_for
 from rewdio.minidsp.state import XoverFilter
 from rewdio.sim.world import Speaker
@@ -30,6 +30,8 @@ def _rig(rt):
                 crossover=[XoverFilter(kind="HP", topology="LR4", freq_hz=1500), guard]),
     ]
     rt.session.config.timing_reference_channel = "LW"
+    rt.session.config.timing_mode = TimingMode.LOOPBACK  # speaker captures need absolute phase
+    rt.session.config.mic_sensitivity_dbfs = -30.0  # the simulator's SPL is calibrated
     w = rt.world
     w.speakers = [Speaker("LW", LW, "main", 0, MODEL), Speaker("LH", LH, "main", 1, MODEL)]
     w.room.reflections = []  # free field above the modal region: the test is about phase, not gating
@@ -66,7 +68,7 @@ async def test_polar_capture_exports_phase_true_frds(sim_runtime, tmp_path):
     guard = _rig(rt)
     await rt.rig.assert_baseline()
     points = angles_for(["hor"], step_deg=30, max_deg=60)
-    assert [(p.plane, p.angle) for p in points] == [("hor", 0), ("hor", 30), ("hor", -30), ("hor", 60), ("hor", -60)]
+    assert [(p.plane, p.angle) for p in points] == [("hor", 0), ("hor", 30), ("hor", 60), ("hor", -30), ("hor", -60)]
     mics = {}
     orig_rotate = rt._sim_rotate
 
@@ -102,7 +104,7 @@ async def test_polar_capture_exports_phase_true_frds(sim_runtime, tmp_path):
         assert np.allclose(np.abs(ratio), r_ratio, rtol=0.05)  # protection divided out: levels match
 
     m = json.loads((out / "rewdio_session.json").read_text())
-    assert m["schema"] == "rewdio.speaker-session/2" and m["geometry"]["driver_offsets_in_phase"]
+    assert m["schema"] == "rewdio.speaker-session/3" and m["geometry"]["driver_offsets_in_phase"]
     assert [d["role"] for d in m["drivers"]] == ["LW", "LH"]
     assert m["drivers"][1]["files"][0]["protection_removed"][0]["protect"] is True
     # the removed delay is the onset of the first arrival (a little ahead of the peak in this band-limited
@@ -142,3 +144,11 @@ async def test_report_sums_drivers_through_the_configured_crossover(sim_runtime)
     lw_, lh_ = (np.asarray(rep["drivers_on_axis_db"][d]) for d in ("LW", "LH"))
     i = int(np.argmin(np.abs(f - 3000)))  # an octave above the 1.5 kHz LR4 crossover the horn dominates
     assert abs(on[i] - lh_[i]) < 1.0 and lw_[i] < lh_[i] - 15
+
+
+async def test_capture_refuses_without_an_absolute_time_base(sim_runtime):
+    rt = sim_runtime()
+    _rig(rt)
+    rt.session.config.timing_mode = TimingMode.SUM_FIT
+    with pytest.raises(ValueError, match="loopback"):
+        rt.speaker.plan("L", angles_for(["hor"]), 2.0)

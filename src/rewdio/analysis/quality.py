@@ -33,15 +33,20 @@ def check_sweep(cfg: SystemConfig, resp: Response, summary: dict, roles: list[st
     snr = summary.get("signalToNoisedB")
     if snr is not None:
         if snr < q.min_snr_db_critical:
-            out.append(Finding("critical", "low_snr", f"SNR {snr:.0f} dB: raise the level or quiet the room"))
+            out.append(Finding("critical", "low_snr", f"SNR {snr:.0f} dB: too quiet against the background. Raise the "
+                                                      "sweep level (Rewdio), or quiet the room or turn the interface's "
+                                                      "mic gain up (Lee)"))
         elif snr < q.min_snr_db_warning:
             out.append(Finding("warning", "low_snr", f"SNR {snr:.0f} dB is marginal"))
     if summary.get("clipped"):  # not in every REW version; clipping also aborts the sweep via protection
-        out.append(Finding("critical", "clipped", "input clipped: lower the level or the mic preamp gain"))
+        out.append(Finding("critical", "clipped", "input clipped: lower the sweep level (Rewdio), or turn the "
+                                                  "interface's mic gain knob down (Lee)"))
+    driver = len(roles) >= 1 and all(cfg.channel(r).kind == ChannelKind.DRIVER for r in roles)
     start = summary.get("startFreq")
-    if start is not None and start > q.max_start_hz:
+    if start is not None and start > q.max_start_hz and not driver:
         out.append(Finding("warning", "lf_coverage", f"data starts at {start:.0f} Hz; sub analysis needs {q.max_start_hz:.0f} Hz"))
-    if reference_db is not None and len(roles) == 1:
+    # speaker-driver sweeps are not held to the ROOM's staging level: off-axis and band-limited sweeps are quiet
+    if reference_db is not None and len(roles) == 1 and not driver:
         kind = cfg.channel(roles[0]).kind
         lo, hi = ((b.sub_level_lo_hz, cfg.crossover_hz * b.sub_level_xo_factor) if kind == ChannelKind.SUB
                   else b.mains_level_hz)

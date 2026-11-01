@@ -13,7 +13,7 @@ from typing import Literal
 
 import numpy as np
 
-FilterType = Literal["PK", "LS", "HS", "LP", "HP"]
+FilterType = Literal["PK", "LS", "HS", "LP", "HP", "AP"]
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,9 @@ def design(kind: FilterType, f0: float, fs: float, gain_db: float = 0.0, q: floa
     elif kind == "HP":
         b0 = b2 = (1 + cw) / 2
         b1 = -(1 + cw)
+        a0, a1, a2 = 1 + alpha, -2 * cw, 1 - alpha
+    elif kind == "AP":  # second-order all-pass: unity magnitude, phase -360 deg across f0 (-180 at f0)
+        b0, b1, b2 = 1 - alpha, -2 * cw, 1 + alpha
         a0, a1, a2 = 1 + alpha, -2 * cw, 1 - alpha
     else:
         raise ValueError(f"unknown filter type {kind}")

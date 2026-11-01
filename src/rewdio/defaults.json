@@ -335,5 +335,11 @@
     ],
     "thumb_ppo": 12,
     "thumb_smoothing": 6
+  },
+  "speaker_prompts": {
+    "settle_s": 2.0,
+    "mac_device": null,
+    "mac_voice": null,
+    "mute": false
   }
 }

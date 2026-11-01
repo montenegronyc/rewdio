@@ -188,6 +188,15 @@ depends on what's available:
 | `list_setups`, `save_setup`, `recall_setup`, `delete_setup` | named, dated DSP setups for A/B listening |
 | `reset_calibration` | start over (measurements kept) |
 | `dashboard_url` | where the live dashboard is running |
+| `rig_selftest` | prove a new rig: DSP seen, loopback timing, crossover and delay writes land |
+| `set_crossover` | write a channel's crossover (presets, explicit Qs, all-pass; protection filters stay) |
+| `speaker_plan`, `speaker_step`, `speaker_confirm`, `speaker_update` | a speaker's polar capture set on a manual turntable |
+| `speaker_nearfield`, `speaker_impedance`, `speaker_distortion` | near-field, ZMA and harmonic distortion captures |
+| `speaker_transfer`, `speaker_soak` | passive-network transfer and burn-in (production QA) |
+| `export_frd`, `speaker_report`, `qa_run` | VituixCAD/SoundSible export, spinorama, tower-vs-reference QA |
+
+Speaker measurement (2-way drivers, VituixCAD, SoundSible, production QA) is documented in
+[docs/TWO_WAY.md](docs/TWO_WAY.md).
 
 Also an MCP prompt, `calibrate`, which walks the model through the loop with explicit pause points,
 and three resources: `rewdio://session/report`, `rewdio://session/config` and `rewdio://session/dsp`.
@@ -392,7 +401,9 @@ The simulator's room, speakers and DSP come from a scenario JSON
 
 - minidsp-rs can't read back per-output settings, so Rewdio keeps a shadow state and **asserts a
   baseline** (gain 0, delay 0, normal polarity, unmuted) on the outputs it manages when a run
-  starts. Your crossovers and any PEQ slots outside `peq_slots` (default 5-9) are left alone.
+  starts. Your crossovers and any PEQ slots outside `peq_slots` (default 5-9) are left alone, except on
+  channels that declare a `crossover` (Rewdio then owns that block) and on `driver` channels (Rewdio owns
+  all ten PEQ slots, so driver captures are not coloured by leftover filters).
 - Defaults assume a 2x4HD: 96 kHz internal rate and an 8 ms delay ceiling. Set `dsp_sample_rate`
   (48000 for SHD/2x4) and `dsp_max_delay_ms` for other units; PEQ coefficients depend on the rate.
 - If the subs can't reach the target with `max_sub_gain_db` of headroom, Rewdio cuts the mains

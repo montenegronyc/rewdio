@@ -56,3 +56,13 @@ def test_targets_pass_for_flat_lw_and_falling_pir():
     assert ev["ok"] and ev["pir"]["slope_db_per_oct"] == pytest.approx(-0.8, abs=0.01)
     curves["lw"] = 3 * np.sin(np.log2(F))  # wavy LW fails
     assert not evaluate(F, curves)["lw"]["ok"]
+
+
+def test_uneven_steps_get_the_sphere_area_they_stand_for():
+    from rewdio.engine.speaker_meta import PRESETS
+    from rewdio.engine.turntable import points_from
+    keys = complete({(p.plane, p.angle): np.ones(1) for p in points_from(PRESETS["soundsible"])})
+    w = power_weights(list(keys))
+    front = sum(v for k, v in w.items() if abs(k[1]) <= 60)
+    true = (1 - np.cos(np.deg2rad(65))) / 2  # the cap up to half-way between 60 and 70 degrees
+    assert front == pytest.approx(true, rel=0.01)

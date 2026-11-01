@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .biquad import Biquad, FilterType, XoverTopology, cascade_response, crossover_sections, design
 
@@ -28,14 +28,35 @@ class Peq(BaseModel):
 
 
 class XoverFilter(BaseModel):
+    """One crossover filter: a preset `topology` (LR4...), or explicit section Qs (`qs`, one biquad each).
+    kind AP (all-pass) always takes `qs`; it delays without changing the level, like a passive LC all-pass."""
     model_config = ConfigDict(extra="forbid")  # it is also a config entry: typos must fail
-    kind: Literal["HP", "LP"]
-    topology: XoverTopology = "LR4"
+    kind: Literal["HP", "LP", "AP"]
+    topology: XoverTopology | None = "LR4"
+    qs: list[float] | None = Field(default=None, description="Explicit section Qs; overrides topology")
     freq_hz: float = Field(gt=0)
     protect: bool = Field(default=False, description="Driver protection: never removed, even for raw captures")
 
+    @model_validator(mode="after")
+    def _shape(self) -> XoverFilter:
+        if self.qs is not None:
+            if not self.qs or any(q <= 0 for q in self.qs):
+                raise ValueError("qs must be a non-empty list of positive Qs")
+            self.topology = None
+        elif self.kind == "AP":
+            raise ValueError("an all-pass (AP) needs qs, e.g. {'kind': 'AP', 'freq_hz': 1381, 'qs': [0.8055]}")
+        elif self.topology is None:
+            raise ValueError("give a topology (LR4, ...) or explicit qs")
+        return self
+
     def sections(self, fs: float) -> list[Biquad]:
+        if self.qs is not None:
+            return [design(self.kind, self.freq_hz, fs, q=q) for q in self.qs]
         return crossover_sections(self.kind, self.topology, self.freq_hz, fs)
+
+    def label(self) -> str:
+        shape = self.topology or "Q " + "/".join(f"{q:g}" for q in self.qs)
+        return f"{self.kind} {self.freq_hz:g} Hz {shape}"
 
 
 def xover_sections(filters: list[XoverFilter], fs: float) -> list[Biquad]:
@@ -71,6 +92,8 @@ class OutputState(BaseModel):
 class DspState(BaseModel):
     outputs: dict[str, OutputState] = Field(default_factory=dict, description="keyed by channel role")
     master_volume_db: float | None = None
+    unsynced: bool = Field(default=False, description="a write failed part-way: the hardware may differ from this "
+                                                      "state, so the next write re-sends everything (survives restarts)")
 
     def get(self, role: str) -> OutputState:
         return self.outputs.setdefault(role, OutputState())

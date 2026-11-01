@@ -23,7 +23,7 @@ This is a separate workflow from the room calibration. The autopilot does not ch
    with only the protection filters active, so a compression driver never sees a full-range sweep.
    The protection filter's exact response is divided out on export.
 3. **Raw capture + FRD export.** Gated complex response from the raw impulse, on the loopback time
-   base. One common delay (default: mic distance / c) is removed from every file, never a per-file
+   base. One common delay (the earliest on-axis raw arrival) is removed from every file, never a per-file
    re-centre, so relative phase between drivers and angles survives. VituixCAD naming:
    `<speaker>_<driver> hor 30.frd`. In VituixCAD, set driver X/Y/Z offsets to zero: the offsets are
    already in the phase.
@@ -67,6 +67,14 @@ Then, from Claude:
 5. `speaker_report`: spinorama curves and targets for the measured drivers through the configured
    crossover.
 
+### Two miniDSP units
+
+The towers can run on one unit and the subs on another: give a channel `"dsp_device": 1` (the
+minidsp-rs device index; channels without it use `minidsp_device_index`). Output numbers may repeat
+across units. Writes and mutes go to the right unit, the room calibration aligns subs and towers
+across units like any other channels, and `rig_selftest` checks each unit. Feed both units the same
+signal.
+
 ### SoundSible handoff (manifest `rewdio.speaker-session/2`)
 
 The final crossover is passive, so SoundSible also needs impedance and distortion, and enough
@@ -94,6 +102,26 @@ geometry to simulate the exact setup. Agreed on the `inbox` branch (`DECISIONS.m
   (`valid_band_hz`), beside the 1/T floor. The ground bounce is checked against the gate.
 - `export_frd(root=...)` writes `<root>/measurements/<date>_<site>_<variant>/`: the manifest at the
   top, `frd/<driver>/`, `zma/`, `distortion/`.
+
+## Production QA (passive towers)
+
+Every hand-built tower is retested against the reference tower before it ships. The reference is an ordinary
+capture set marked `speaker_update(reference=true)` and exported. A tower's set records its `serial` and the
+LCR-meter part values (`parts`); manifest schema `rewdio.speaker-session/3`.
+
+Captures beyond the polar set:
+- `speaker_impedance(channel)` at the binding posts (the tower is one channel).
+- `speaker_transfer(stage='amp'|'tap', label, driver)`: the network to one driver, as two sweeps through the
+  SAME input and divider (a differential probe for the woofer inside the lattice); divider and mic calibration
+  cancel in the ratio.
+- `speaker_distortion` at 95 dB at the seat (the rub-and-buzz flag reads its H5 to H9).
+- `speaker_soak(channel, minutes=60, spl_db=90)` in the background, then `speaker_impedance(label='post_soak')`.
+
+`qa_run(candidate_dir, reference_dir, pair_dir)` checks impedance (5 %, minimum 4 ohm), network transfer
+(0.3 dB / 3 deg), polarity, on-axis FRD (1 dB, 1/6 oct), pair match (0.5 dB, 10 deg), distortion (reference
++3 dB), rub and buzz (a flag; Lee still listens) and the soak (2 %), each with its worst frequency and margin.
+The limits live in `qa_tolerances.json` (packaged defaults, overlaid by `REWDIO_HOME/qa_tolerances.json`).
+Results go to `qa_report.json` and a `qa` block in the tower's manifest.
 
 ## Hardware: is the 2x4HD enough?
 

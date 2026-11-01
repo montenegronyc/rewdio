@@ -1,4 +1,4 @@
-import { Action, Crawl } from "./api";
+import { Action, Crawl, Speaker } from "./api";
 
 const cm = (m: number) => `${Math.round(m * 100)} cm`;
 
@@ -38,4 +38,31 @@ export function PlaceCard({ place }: { place: Record<string, string> }) {
 
 export function ActionCard({ action }: { action: Action }) {
   return <section className="hero"><p className="instructions">{action.instructions}</p></section>;
+}
+
+const signed = (a: number) => (a === 0 ? "0" : `${a > 0 ? "+" : "\u2212"}${Math.abs(a)}`);
+
+export function SpeakerCard({ sp, voice, onVoice }: { sp: Speaker; voice: boolean; onVoice: (on: boolean) => void }) {
+  const p = sp.prompt;
+  const pct = (100 * sp.progress.done) / Math.max(1, sp.progress.total);
+  const failed = sp.last && (sp.last.status === "retry" || sp.last.status === "error");
+  return (
+    <section className="hero" aria-live="polite">
+      {p ? (
+        <>
+          <p className="hero-sub">{p.plane === "hor" ? "Horizontal" : "Vertical"}</p>
+          <h1 className="hero-code">{signed(p.target)}°</h1>
+          {p.move_deg !== 0 && (
+            <p className="hero-sub">Turn {Math.abs(p.move_deg)}° {p.move_deg > 0 ? "clockwise" : "anticlockwise"} (seen from above)</p>
+          )}
+          <p className="instructions">{p.instructions}</p>
+        </>
+      ) : <h1 className="hero-title">{sp.done ? "Set complete" : "Measuring"}</h1>}
+      {failed && <p className="note">{sp.last!.speech}{sp.last!.error ? ` (${sp.last!.error})` : ""}</p>}
+      <div className="progress"><div className="bar"><span style={{ width: `${pct}%` }} /></div>
+        <span>{sp.progress.done} of {sp.progress.total}</span></div>
+      <label className="soft"><input type="checkbox" checked={voice} onChange={(e) => onVoice(e.target.checked)} /> Voice on this phone</label>
+      {sp.mac_voice.problem && <p className="soft">Mac voice off: {sp.mac_voice.problem}</p>}
+    </section>
+  );
 }
