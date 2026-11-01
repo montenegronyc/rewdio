@@ -347,19 +347,24 @@ class FakeMiniDSP:
         p = request.url.path
         if p == "/devices":
             return httpx.Response(200, json=[{"product_name": "2x4HD (simulated)", "url": "sim://",
-                                              "version": {"hw_id": 10, "dsp_version": 100, "serial": 1}}])
-        if p == "/devices/0" and request.method == "GET":
+                                              "version": {"hw_id": 10, "dsp_version": 100, "serial": 1 + i}}
+                                             for i in range(1 + len(self.world.more_dsp))])
+        mm = re.fullmatch(r"/devices/(\d+)(/config)?", p)
+        unit = self.world.unit(int(mm.group(1))) if mm else None
+        if mm and unit is None:
+            return httpx.Response(404, json={"error": f"no device {mm.group(1)}"})
+        if mm and not mm.group(2) and request.method == "GET":
             return httpx.Response(200, json={"master": {"preset": 0, "source": "Usb", "volume": self.world.master_volume_db,
                                                         "mute": False, "dirac": False},
-                                             "input_levels": [-120.0, -120.0], "output_levels": [-120.0] * 4})
-        if p == "/devices/0/config" and request.method == "POST":
+                                             "input_levels": [-120.0, -120.0], "output_levels": [-120.0] * len(unit)})
+        if mm and mm.group(2) and request.method == "POST":
             if self.fail_writes > 0:
                 self.fail_writes -= 1
                 return httpx.Response(500, json={"error": "simulated write failure"})
             cfg = json.loads(request.content)
             self.writes.append(cfg)
             for o in cfg.get("outputs", []):
-                out = self.world.dsp.get(o["index"])
+                out = unit.get(o["index"])
                 if out is None:
                     return httpx.Response(500, json={"error": f"no output {o['index']}"})
                 if o.get("gain") is not None:

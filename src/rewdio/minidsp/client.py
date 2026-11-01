@@ -59,15 +59,18 @@ class MiniDSPClient:
     async def devices(self) -> list[dict]:
         return await self._call("GET", "/devices")
 
-    async def status(self) -> dict:
-        return await self._call("GET", f"/devices/{self.device_index}")
+    def _dev(self, device: int | None) -> int:
+        return self.device_index if device is None else device
 
-    async def apply(self, config: dict) -> None:
-        await self._call("POST", f"/devices/{self.device_index}/config", config)
+    async def status(self, device: int | None = None) -> dict:
+        return await self._call("GET", f"/devices/{self._dev(device)}")
 
-    async def set_outputs(self, outputs: list[dict]) -> None:
+    async def apply(self, config: dict, device: int | None = None) -> None:
+        await self._call("POST", f"/devices/{self._dev(device)}/config", config)
+
+    async def set_outputs(self, outputs: list[dict], device: int | None = None) -> None:
         if outputs:
-            await self.apply({"outputs": outputs})
+            await self.apply({"outputs": outputs}, device)
 
     @staticmethod
     def output_patch(index: int, *, gain_db: float | None = None, mute: bool | None = None,

@@ -62,16 +62,19 @@ async def run(rig: Rig, driver: str, distance_m: float | None = None, impedance:
     ch = cfg.channel(driver)
     checks: list[dict] = []
 
-    # 1. the DSP
+    # 1. the DSP unit(s)
     try:
         devs = await rig.dsp.devices()
-        dev = devs[cfg.minidsp_device_index] if len(devs) > cfg.minidsp_device_index else None
-        st = await rig.dsp.status()
-        n_out = len(st.get("output_levels") or [])
-        need = max(c.dsp_output for c in cfg.channels) + 1
-        name = (dev or {}).get("product_name", "?")
-        checks.append(_check("minidsp_device", dev is not None and n_out >= need,
-                             f"{name}: {n_out} outputs, config needs {need}", product=name, outputs=n_out))
+        for d in cfg.dsp_devices:
+            dev = devs[d] if len(devs) > d else None
+            n_out = len((await rig.dsp.status(d)).get("output_levels") or []) if dev else 0
+            need = max(c.dsp_output for c in cfg.channels if cfg.device_of(c.role) == d) + 1
+            name = (dev or {}).get("product_name", "missing")
+            checks.append(_check("minidsp_device", dev is not None and n_out >= need,
+                                 f"device {d}: {name}, {n_out} outputs, config needs {need}", device=d,
+                                 product=name, outputs=n_out))
+        if any(c["result"] == "FAIL" for c in checks):
+            return _finish(s, checks)
     except Exception as e:  # noqa: BLE001 - a self-test reports every failure rather than stopping
         checks.append(_check("minidsp_device", False, f"minidsp-rs not reachable or no device: {e}"))
         return _finish(s, checks)

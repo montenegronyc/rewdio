@@ -71,9 +71,12 @@ class Rig:
         if self._check_protection(new) or self.dirty:  # unknown crossover filled, or a failed write: send everything
             roles, mute_only, include_peq = None, False, True
         targets = [c.role for c in self.cfg.channels if roles is None or c.role in roles]
-        patches = [self._patch(r, new.get(r), mute_only, include_peq) for r in targets]
+        by_dev: dict[int, list[dict]] = {}
+        for r in targets:  # one write per miniDSP unit
+            by_dev.setdefault(self.cfg.device_of(r), []).append(self._patch(r, new.get(r), mute_only, include_peq))
         try:
-            await self.dsp.set_outputs(patches)
+            for dev, patches in sorted(by_dev.items()):
+                await self.dsp.set_outputs(patches, dev)
         except Exception:
             self.dirty = True
             raise

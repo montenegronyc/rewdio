@@ -40,6 +40,8 @@ class Channel(_Strict):
     role: str = Field(description="Short name, e.g. L, R, SUB1, SUB2")
     kind: ChannelKind
     dsp_output: int = Field(ge=0, description="0-based miniDSP output index")
+    dsp_device: int | None = Field(default=None, ge=0, description="minidsp-rs device index when two units are "
+                                                                   "used (e.g. towers + subs); null = minidsp_device_index")
     rew_output_channel: str | None = Field(
         default=None, description="REW output channel for this speaker; null = leave REW's selection alone")
     speaker: str | None = Field(default=None, description="Driver channels: the speaker they belong to, e.g. 'L'")
@@ -368,9 +370,9 @@ class SystemConfig(_Strict):
         roles = [c.role for c in self.channels]
         if len(set(roles)) != len(roles):
             raise ValueError(f"channel roles must be unique: {roles}")
-        outs = [c.dsp_output for c in self.channels]
+        outs = [(self.device_of(c.role), c.dsp_output) for c in self.channels]
         if len(set(outs)) != len(outs):
-            raise ValueError(f"each channel needs its own miniDSP output: {outs}")
+            raise ValueError(f"each channel needs its own miniDSP output (device, output): {outs}")
         per = [c.rew_output_channel for c in self.channels]
         if any(per) and not all(per):
             raise ValueError("set rew_output_channel on every channel or on none (mixing leaves REW on the wrong output)")
@@ -390,6 +392,14 @@ class SystemConfig(_Strict):
         if self.channel(role).kind == ChannelKind.DRIVER:
             return []
         return self.peq_slots if self.channel(role).kind == ChannelKind.SUB else self.balance.peq_slots
+
+    def device_of(self, role: str) -> int:
+        c = self.channel(role)
+        return self.minidsp_device_index if c.dsp_device is None else c.dsp_device
+
+    @property
+    def dsp_devices(self) -> list[int]:
+        return sorted({self.device_of(c.role) for c in self.channels})
 
     def channel(self, role: str) -> Channel:
         for c in self.channels:

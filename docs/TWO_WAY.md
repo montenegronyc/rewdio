@@ -67,6 +67,14 @@ Then, from Claude:
 5. `speaker_report`: spinorama curves and targets for the measured drivers through the configured
    crossover.
 
+### Two miniDSP units
+
+The towers can run on one unit and the subs on another: give a channel `"dsp_device": 1` (the
+minidsp-rs device index; channels without it use `minidsp_device_index`). Output numbers may repeat
+across units. Writes and mutes go to the right unit, the room calibration aligns subs and towers
+across units like any other channels, and `rig_selftest` checks each unit. Feed both units the same
+signal.
+
 ### SoundSible handoff (manifest `rewdio.speaker-session/2`)
 
 The final crossover is passive, so SoundSible also needs impedance and distortion, and enough

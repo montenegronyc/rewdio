@@ -98,6 +98,7 @@ class Speaker:
     model: list[list]  # [[type, f0, q(, gain_db)], ...] driver/box response
     latency_ms: float = 0.0
     sensitivity_db: float = 112.0  # SPL at 1 m for a 0 dBFS drive through unity DSP
+    dsp_device: int = 0  # which miniDSP unit drives it
 
     def response(self, f: np.ndarray, fs: float) -> np.ndarray:
         h = cascade_response([design(m[0], min(m[1], fs * 0.45), fs, gain_db=m[3] if len(m) > 3 else 0.0, q=m[2])
@@ -135,6 +136,10 @@ class World:
     noise_floor_spl: float = 30.0
     clip_spl: float = 118.0
     seed: int = 0
+    more_dsp: dict[int, dict[int, DspOutput]] = field(default_factory=dict)  # units 1, 2...
+
+    def unit(self, device: int) -> dict[int, DspOutput] | None:
+        return self.dsp if device == 0 else self.more_dsp.get(device)
 
     def drive(self, rew_output: str | None) -> tuple[float, float]:
         c = (rew_output or "").strip().lower()
@@ -149,7 +154,7 @@ class World:
         drv = self.drive(rew_output)
         total = np.zeros(f.shape, complex)
         for spk in self.speakers:
-            out = self.dsp[spk.dsp_output]
+            out = self.unit(spk.dsp_device)[spk.dsp_output]
             mix = out.routing[0] * drv[0] + out.routing[1] * drv[1]
             if out.mute or mix == 0:
                 continue

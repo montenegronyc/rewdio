@@ -106,7 +106,8 @@ async def rewdio_status() -> dict:
     except Exception as e:  # report, don't fail: the user may be mid-setup
         out["rew"] = {"error": str(e)}
     try:
-        out["minidsp"] = {"devices": await rt.dsp.devices(), "status": await rt.dsp.status()}
+        out["minidsp"] = {"devices": await rt.dsp.devices(),
+                          "status": {d: await rt.dsp.status(d) for d in rt.session.config.dsp_devices}}
     except Exception as e:
         out["minidsp"] = {"error": str(e)}
     return _clean(out)
