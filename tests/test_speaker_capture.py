@@ -67,7 +67,7 @@ async def test_polar_capture_exports_phase_true_frds(sim_runtime, tmp_path):
     guard = _rig(rt)
     await rt.rig.assert_baseline()
     points = angles_for(["hor"], step_deg=30, max_deg=60)
-    assert [(p.plane, p.angle) for p in points] == [("hor", 0), ("hor", 30), ("hor", -30), ("hor", 60), ("hor", -60)]
+    assert [(p.plane, p.angle) for p in points] == [("hor", 0), ("hor", 30), ("hor", 60), ("hor", -30), ("hor", -60)]
     mics = {}
     orig_rotate = rt._sim_rotate
 

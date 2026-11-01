@@ -16,6 +16,7 @@ written back at the end of every step, so the speaker is never left raw while wa
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -30,16 +31,12 @@ from ..minidsp.biquad import cascade_response
 from ..minidsp.state import XoverFilter, xover_sections
 from .rig import Rig
 from .speaker_extras import Distortion, Impedance, PassiveExtras
-from .speaker_meta import ANGLE_CONVENTION, FRAME, AnglePlan, Environment, Geometry, now_et, set_folder
+from .speaker_meta import ANGLE_CONVENTION, FRAME, Environment, Geometry, now_et, set_folder
+from .turntable import Point, angles_for, points_from, prompt  # noqa: F401 (re-exported)
 from .store import Session
 
 ON_AXIS = {("hor", 0.0), ("ver", 0.0)}
 MANIFEST_SCHEMA = "rewdio.speaker-session/2"
-
-
-class Point(BaseModel):
-    plane: str
-    angle: float
 
 
 MODES = ("raw", "xo", "sum")  # driver alone / driver through its output as configured / all drivers together
@@ -82,38 +79,22 @@ class SpeakerState(BaseModel):
         return self.index >= len(self.points)
 
 
-def angles_for(planes: list[str], step_deg: float = 10.0, max_deg: float = 180.0, symmetric: bool = False) -> list[Point]:
-    """0 first (once), then each plane outwards. symmetric=True measures one side only (VituixCAD mirrors)."""
-    if step_deg <= 0 or max_deg <= 0:
-        raise ValueError("step and max angle must be positive")
-    pts = [Point(plane=planes[0], angle=0.0)]
-    n = int(round(max_deg / step_deg))
-    for plane in planes:
-        for k in range(1, n + 1):
-            a = round(k * step_deg, 3)
-            pts.append(Point(plane=plane, angle=a))
-            if not symmetric and a < 180:
-                pts.append(Point(plane=plane, angle=-a))
-    return pts
-
-
-def points_from(plan: AnglePlan) -> list[Point]:
-    """Explicit angle lists: 0 once, then each plane outwards (with negatives when both_signs)."""
-    planes = [p for p in ("hor", "ver") if getattr(plan, p)] or ["hor"]
-    pts = [Point(plane=planes[0], angle=0.0)]
-    for plane in planes:
-        for a in sorted({float(a) for a in getattr(plan, plane) if a != 0}):
-            pts.append(Point(plane=plane, angle=a))
-            if plan.both_signs and a < 180:
-                pts.append(Point(plane=plane, angle=-a))
-    return pts
-
-
 class SpeakerCapture(PassiveExtras):
     FILE = "speaker.json"
 
     def __init__(self, rig: Rig):
         self.rig = rig
+        self.voice = None  # engine.voice.Voice, set by the runtime
+        self.last: dict | None = None  # what just happened, for the phone card: status, speech, point
+        self._announced: int | None = None
+
+    async def _announce(self, text: str) -> None:
+        """Speak only while the rig is idle (never during a sweep): before the settle, or after the sweeps."""
+        if self.voice is not None:
+            await self.voice.say(text)
+
+    def _result(self, status: str, speech: str, point=None) -> None:
+        self.last = {"status": status, "speech": speech, "point": point, "at": time.time()}
 
     @property
     def s(self) -> Session:
@@ -179,21 +160,10 @@ class SpeakerCapture(PassiveExtras):
 
     def _ask(self, st: SpeakerState) -> dict:
         p = st.points[st.index]
-        first = st.index == 0
-        g = st.geometry
-        where = (f"turntable axis at {g.pivot_xyz} and mic at {g.mic_xyz} (metres; x forward, y to the speaker's "
-                 "left, z up, from the top-front centre of the woofer box)" if g.pivot_xyz and g.mic_xyz else
-                 "turntable axis under the top-front centre of the woofer box, mic straight ahead")
-        prev = st.points[st.index - 1] if st.index else None
-        side = (" Lay the speaker on its RIGHT side for the vertical plane, keeping the same pivot."
-                if p.plane == "ver" and (prev is None or prev.plane != "ver") else "")
-        txt = (f"Set up {st.speaker} ({st.variant}): {where}, {st.distance_m:g} m apart. Start at 0 degrees. "
-               "Do not move the mic or the pivot until every angle is done."
-               if first else
-               f"Rotate {st.speaker} to {p.angle:+g} degrees in the {'horizontal' if p.plane == 'hor' else 'vertical'} "
-               f"plane ({ANGLE_CONVENTION[p.plane]}).{side} Keep the mic where it is.")
+        pr = prompt(st.points, st.index, st.speaker, st.distance_m, st.geometry.mic_height_m)
         return {"status": "user_action_required",
-                "action": {"key": f"rotate:{st.index}", "instructions": txt,
+                "action": {"key": f"rotate:{st.index}", "instructions": pr["text"], "speech": pr["speech"],
+                           "plane": pr["plane"], "target": pr["target"], "move_deg": pr["move_deg"],
                            "sim": {"polar": {"plane": p.plane, "angle": p.angle, "speaker": st.speaker}}},
                 "progress": f"{st.index}/{len(st.points)} angles"}
 
@@ -223,10 +193,16 @@ class SpeakerCapture(PassiveExtras):
         if st.done:
             return {"status": "done", "captures": len(st.captures), "next": "export_frd"}
         if st.rotated_to != st.index:
-            return self._ask(st)
+            ask = self._ask(st)
+            if self._announced != st.index:  # say each prompt once, however often step is called
+                self._announced = st.index
+                await self._announce(ask["action"]["speech"])
+            return ask
         p = st.points[st.index]
         took = []
         pos = f"{p.plane} {p.angle:g}"
+        await self._announce("Hold still.")
+        await asyncio.sleep(self.s.config.speaker_prompts.settle_s)  # footsteps and the voice die away first
 
         async def keep(roles: list[str], driver: str, mode: str) -> None:
             mid = await self._sweep(roles, "driver" if mode == "raw" else f"driver_{mode}", pos, speaker=st.speaker,
@@ -252,7 +228,12 @@ class SpeakerCapture(PassiveExtras):
                for f in m.extra.get("quality", []) if f.get("level") == "critical"]
         if bad:  # same angle again once fixed: a clipped or noisy sweep would poison the whole set
             self._save(st)
-            return {"status": "retry", "point": p.model_dump(), "quality": bad,
+            why = {"clipped": "Clipped", "low_snr": "Too quiet", "silent_channel": "No sound"}.get(bad[0].get("code"),
+                                                                                                    "Bad sweep")
+            speech = f"{why} at {p.angle:+g}. Again."
+            self._result("retry", speech, p.model_dump())
+            await self._announce(speech)
+            return {"status": "retry", "point": p.model_dump(), "quality": bad, "speech": speech,
                     "message": "fix the problem (level, noise, cabling), then call speaker_step again"}
         st.index += 1
         self._save(st)
@@ -260,6 +241,12 @@ class SpeakerCapture(PassiveExtras):
                "progress": f"{st.index}/{len(st.points)} angles"}
         if not st.done:
             rep["next"] = self._ask(st)
+            self._announced = st.index
+            speech = "Got it. " + rep["next"]["action"]["speech"]
+        else:
+            speech = "Got it. Set complete."
+        self._result("measured" if not st.done else "done", speech, p.model_dump())
+        await self._announce(speech)
         return rep
 
     async def nearfield(self, driver: str, label: str = "nf") -> dict:

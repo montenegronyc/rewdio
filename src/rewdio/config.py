@@ -309,6 +309,14 @@ class CrawlGrid(_Strict):
     max_cells: int = Field(ge=3, description="Safety cap on how many cells one crawl may visit")
 
 
+class SpeakerPrompts(_Strict):
+    settle_s: float = Field(ge=0, le=30, description="Wait after Ready before a speaker sweep (footsteps, voice)")
+    mac_device: str | None = Field(description="Audio output for spoken turntable prompts on this computer (`say -a`); "
+                                               "null = no Mac voice. Never the interface REW plays through")
+    mac_voice: str | None = Field(description="`say` voice; null = the best installed en_GB female voice")
+    mute: bool = Field(description="Silence the Mac voice (the phone has its own switch)")
+
+
 class SetupLibrary(_Strict):
     dir: str | None = Field(description="Folder for named, dated DSP setups; null = <REWDIO_HOME>/setups")
     autosave_on_done: bool = Field(description="Save the finished calibration as a setup automatically")
@@ -352,6 +360,7 @@ class SystemConfig(_Strict):
     balance: BalanceSettings
     dashboard: DashboardSettings
     setups: SetupLibrary
+    speaker_prompts: SpeakerPrompts
     tuning: Tuning
 
     @model_validator(mode="after")

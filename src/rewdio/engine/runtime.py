@@ -37,6 +37,7 @@ class Runtime:
                 cfg.seat_xyz.setdefault(k, v)
             # the simulator answers instantly: no settle, polling or listening time needed
             cfg.rew_client = cfg.rew_client.model_copy(update={"settle_s": 0.0, "poll_interval_s": 0.0})
+            cfg.speaker_prompts = cfg.speaker_prompts.model_copy(update={"settle_s": 0.0})
             cfg.tuning.preflight = cfg.tuning.preflight.model_copy(update={"input_level_listen_s": 0.0})
             rt, dt, self.fake_rew, self.fake_dsp = transports(self.world)
             self.rew = RewClient(cfg.rew_url, cfg.rew_client, transport=rt)
@@ -47,6 +48,8 @@ class Runtime:
         self.rig = Rig(self.session, self.rew, self.dsp)
         self.autopilot = Autopilot(self.rig)
         self.speaker = SpeakerCapture(self.rig)
+        from .voice import Voice
+        self.speaker.voice = Voice(cfg.speaker_prompts, self.rew)
 
     @property
     def busy(self) -> bool:
@@ -79,12 +82,49 @@ class Runtime:
         if not hasattr(self, key):  # the mic position at 0 degrees defines the axis
             setattr(self, key, np.subtract(w.mic, pivot))
         v = getattr(self, key)
-        a = np.deg2rad(-polar["angle"])
+        # the mic moves round the speaker the opposite way to the turntable: toward the speaker's left (+y) for a
+        # positive horizontal angle, upward (+z) for a positive vertical one
+        a = np.deg2rad(polar["angle"])
         k = np.array([0.0, 0.0, 1.0]) if polar["plane"] == "hor" else np.cross(v, [0.0, 0.0, 1.0])
         k = k / np.linalg.norm(k)
         r = v * np.cos(a) + np.cross(k, v) * np.sin(a) + k * np.dot(k, v) * (1 - np.cos(a))  # Rodrigues
         w.mic = tuple(pivot + r)
         return f"rotated {polar['speaker']} to {polar['plane']} {polar['angle']:g} (mic at {tuple(np.round(w.mic, 3))})"
+
+    def speaker_confirm(self, key: str | None = None) -> dict:
+        """The person turned the speaker as asked (in the simulator: turn it)."""
+        st = self.speaker.state()
+        sim = []
+        if st is not None and not st.done and st.rotated_to != st.index:
+            sim = self.apply_sim_effects(self.speaker._ask(st)["action"], None)
+        res = self.speaker.confirm(key)
+        if sim:
+            res["simulated_effects"] = sim
+        return res
+
+    async def speaker_step(self) -> dict:
+        async with self.lock:
+            rep = await self.speaker.step()
+        self.session.save()  # bumps the version: the phone redraws
+        return rep
+
+    def speaker_ready(self, key: str | None = None) -> dict:
+        """Ready from the phone: confirm the turn, then sweep in the background (settle first)."""
+        if self.busy or (self._task is not None and not self._task.done()):
+            return {"ok": False, "message": "still measuring"}
+        res = self.speaker_confirm(key)
+        if res.get("ok"):
+            self._task = asyncio.create_task(self.speaker_step())
+            self._task.add_done_callback(self._speaker_done)
+            res["running"] = True
+        return res
+
+    def _speaker_done(self, task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception() is not None:
+            e = task.exception()
+            self.speaker._result("error", "Sweep failed. Check the computer.", None)
+            self.speaker.last["error"] = f"{type(e).__name__}: {e}"
+            self.session.save()
 
     def advance_in_background(self) -> bool:
         """Kick the autopilot from the phone. False if a run is already going."""

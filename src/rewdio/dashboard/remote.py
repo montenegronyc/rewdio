@@ -95,6 +95,12 @@ def routes(runtime: Callable) -> list[Route]:
             res["running"] = rt.advance_in_background()
         return JSONResponse(json.loads(json.dumps(res, default=str)))
 
+    async def speaker_ready(req):
+        if not authed(req):
+            return deny()
+        body = await req.json() if await req.body() else {}
+        return JSONResponse(json.loads(json.dumps(runtime().speaker_ready(body.get("key")), default=str)))
+
     async def step(req):
         if not authed(req):
             return deny()
@@ -198,5 +204,5 @@ def routes(runtime: Callable) -> list[Route]:
             Route("/api/setup", setup_get), Route("/api/setup", setup_save, methods=["POST"]),
             Route("/api/setup/check", setup_check, methods=["POST"]),
             Route("/api/state", state), Route("/api/events", events), Route("/api/confirm", confirm, methods=["POST"]),
-            Route("/api/step", step, methods=["POST"]), Route("/api/crawl/cell", cell, methods=["POST"]),
+            Route("/api/step", step, methods=["POST"]), Route("/api/speaker/ready", speaker_ready, methods=["POST"]), Route("/api/crawl/cell", cell, methods=["POST"]),
             Route("/api/pair", pair), Route("/api/pair/qr.svg", qr)]

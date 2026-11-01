@@ -80,8 +80,26 @@ def crawl_view(rt) -> dict | None:
     }
 
 
+def speaker_view(rt) -> dict | None:
+    """The turntable card: what to do now, what just happened. None when no capture set is open."""
+    st = rt.speaker.state()
+    if st is None or st.exported_to:
+        return None
+    waiting = not st.done and st.rotated_to != st.index
+    prompt = None
+    if waiting:
+        a = rt.speaker._ask(st)["action"]
+        prompt = {k: a[k] for k in ("key", "instructions", "speech", "plane", "target", "move_deg")}
+    v = rt.speaker.voice
+    return {"speaker": st.speaker, "variant": st.variant, "done": st.done, "waiting": waiting, "prompt": prompt,
+            "progress": {"done": st.index, "total": len(st.points)}, "last": rt.speaker.last,
+            "mac_voice": {"device": rt.session.config.speaker_prompts.mac_device,
+                          "problem": v.problem if v else None}}
+
+
 def live_snapshot(rt) -> dict:
     out = snapshot(rt.session)
+    out["speaker"] = speaker_view(rt)
     out.update(busy=rt.busy, version=rt.session.version, crawl=crawl_view(rt),
                simulated=rt.simulate, last_status=(rt.last_report or {}).get("status"),
                last_error=(rt.last_report or {}).get("error"))

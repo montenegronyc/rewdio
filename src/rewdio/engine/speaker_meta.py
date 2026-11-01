@@ -18,9 +18,10 @@ ET = ZoneInfo("America/New_York")
 FRAME = ("x forward, y to the speaker's left, z up; origin at the top of the woofer box on the front face, "
          "centre; metres; speaker upright at 0 degrees")
 ANGLE_CONVENTION = {
-    "hor": "rotation about the vertical axis through the pivot; positive = the mic sees more of the speaker's left",
-    "ver": "speaker laid on its right side on the same pivot; positive = the mic sees more of the speaker's top "
-           "(above the axis)",
+    "hor": "rotation about the vertical axis through the pivot; positive = turntable turned clockwise seen from "
+           "above, so the mic sees more of the speaker's own left side",
+    "ver": "speaker laid on its right side on the same pivot; positive = turntable turned clockwise seen from above, "
+           "so the mic sees more of the speaker's top (above the axis)",
 }
 
 
