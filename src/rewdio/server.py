@@ -285,7 +285,7 @@ async def speaker_plan(speaker: str, planes: list[str] | None = None, step_deg: 
                        max_deg: float = 180.0, symmetric: bool = False, distance_m: float | None = None,
                        angles: dict | None = None, preset: str | None = None, variant: str = "default",
                        geometry: dict | None = None, environment: dict | None = None,
-                       replace: bool = False) -> dict:
+                       replace: bool = False, modes: list[str] | None = None) -> dict:
     """Plan a raw driver capture set of one speaker around a manual turntable, for VituixCAD/SoundSible.
 
     The speaker's drivers are the channels with kind 'driver' and this `speaker` name; each needs a
@@ -296,7 +296,10 @@ async def speaker_plan(speaker: str, planes: list[str] | None = None, step_deg: 
     geometry (frame: x forward, y to the speaker's left, z up, origin top-front centre of the woofer box,
     metres): pivot_xyz, mic_xyz (or mic_distance_m + mic_height_m + origin_height_m above the ground),
     riser_h, horn_offset_m, horn_stem_lift_m, horn_id.
-    environment: temperature_c, indoor, site, soundsible_commit. Then call `speaker_step` repeatedly."""
+    environment: temperature_c, indoor, site, soundsible_commit.
+    modes (default ['raw']): 'raw' = each driver alone (crossover down to its protection filter, the output's
+    gain/delay/polarity/PEQ divided out on export); 'xo' = each driver through its output exactly as configured
+    (e.g. auditioning a passive target); 'sum' = all drivers together. Then call `speaker_step` repeatedly."""
     from .engine.speaker import angles_for, points_from
     from .engine.speaker_meta import PRESETS, AnglePlan, Environment, Geometry
     rt = runtime()
@@ -309,7 +312,7 @@ async def speaker_plan(speaker: str, planes: list[str] | None = None, step_deg: 
     else:
         pts = angles_for(planes or ["hor"], step_deg, max_deg, symmetric)
     st = rt.speaker.plan(speaker, pts, distance_m, Geometry.from_inputs(**(geometry or {})),
-                         Environment.model_validate(environment or {}), variant, replace)
+                         Environment.model_validate(environment or {}), variant, replace, modes)
     return {"ok": True, "drivers": st.drivers, "angles": len(st.points), "sweeps": len(st.points) * len(st.drivers),
             "distance_m": round(st.distance_m, 4), "folder": str(rt.speaker.folder(st)),
             "not_recorded": st.geometry.missing() + st.environment.missing()}

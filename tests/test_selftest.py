@@ -52,7 +52,8 @@ async def test_selftest_catches_a_dsp_that_drops_delay_and_crossover_writes(sim_
 
 async def test_selftest_without_loopback_says_why_phase_checks_are_skipped(sim_runtime):
     rt = sim_runtime()
-    _speaker_rig(rt)  # default config: sum_fit, no absolute timing
+    _speaker_rig(rt)
+    rt.session.config.timing_mode = TimingMode.SUM_FIT  # no absolute timing
     await rt.rig.assert_baseline()
     rep = await selftest.run(rt.rig, "LW")
     res = {c["check"]: c for c in rep["checks"]}

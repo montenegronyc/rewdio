@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from rewdio.analysis.frd import Gate, read_frd
-from rewdio.config import Channel, ChannelKind
+from rewdio.config import Channel, ChannelKind, TimingMode
 from rewdio.engine.speaker import angles_for
 from rewdio.minidsp.state import XoverFilter
 from rewdio.sim.world import Speaker
@@ -30,6 +30,7 @@ def _rig(rt):
                 crossover=[XoverFilter(kind="HP", topology="LR4", freq_hz=1500), guard]),
     ]
     rt.session.config.timing_reference_channel = "LW"
+    rt.session.config.timing_mode = TimingMode.LOOPBACK  # speaker captures need absolute phase
     w = rt.world
     w.speakers = [Speaker("LW", LW, "main", 0, MODEL), Speaker("LH", LH, "main", 1, MODEL)]
     w.room.reflections = []  # free field above the modal region: the test is about phase, not gating
@@ -142,3 +143,11 @@ async def test_report_sums_drivers_through_the_configured_crossover(sim_runtime)
     lw_, lh_ = (np.asarray(rep["drivers_on_axis_db"][d]) for d in ("LW", "LH"))
     i = int(np.argmin(np.abs(f - 3000)))  # an octave above the 1.5 kHz LR4 crossover the horn dominates
     assert abs(on[i] - lh_[i]) < 1.0 and lw_[i] < lh_[i] - 15
+
+
+async def test_capture_refuses_without_an_absolute_time_base(sim_runtime):
+    rt = sim_runtime()
+    _rig(rt)
+    rt.session.config.timing_mode = TimingMode.SUM_FIT
+    with pytest.raises(ValueError, match="loopback"):
+        rt.speaker.plan("L", angles_for(["hor"]), 2.0)

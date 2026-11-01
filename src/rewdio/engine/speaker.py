@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from ..analysis.frd import FrdFile, Gate, arrival_s, gated_response, remove_protection, stable_band, vituix_name
 from ..analysis.spin import evaluate, spinorama
-from ..config import ChannelKind
+from ..config import ChannelKind, TimingMode
 from ..minidsp.biquad import cascade_response
 from ..minidsp.state import XoverFilter, xover_sections
 from .rig import Rig
@@ -42,11 +42,15 @@ class Point(BaseModel):
     angle: float
 
 
+MODES = ("raw", "xo", "sum")  # driver alone / driver through its output as configured / all drivers together
+
+
 class Capture(BaseModel):
-    driver: str
+    driver: str  # "sum" for a summed capture
     plane: str
     angle: float
     id: str
+    mode: str = "raw"
 
 
 class Nearfield(BaseModel):
@@ -61,6 +65,7 @@ class SpeakerState(BaseModel):
     distance_m: float
     points: list[Point]
     variant: str = "default"
+    modes: list[str] = Field(default_factory=lambda: ["raw"])
     geometry: Geometry = Field(default_factory=Geometry)
     environment: Environment = Field(default_factory=Environment)
     impedance: list[Impedance] = Field(default_factory=list)
@@ -146,8 +151,13 @@ class SpeakerCapture(PassiveExtras):
 
     def plan(self, speaker: str, points: list[Point], distance_m: float | None = None,
              geometry: Geometry | None = None, environment: Environment | None = None, variant: str = "default",
-             replace: bool = False) -> SpeakerState:
+             replace: bool = False, modes: list[str] | None = None) -> SpeakerState:
         """Start a capture set. Each physical variant (horn offset, riser height...) is its own set."""
+        tm = self.s.config.timing_mode
+        if tm not in (TimingMode.LOOPBACK, TimingMode.ACOUSTIC):
+            raise ValueError(f"timing_mode is {tm.value!r}: REW then puts every impulse peak at t=0, which erases the "
+                             "timing between drivers and angles that the FRDs exist to carry. Wire the loopback "
+                             "(interface output to a second input), set timing_mode to 'loopback', and run rig_selftest")
         old = self.state()
         if old is not None and old.captures and not old.exported_to and not replace:
             raise ValueError(f"the current set ({old.speaker}, variant {old.variant!r}) has {len(old.captures)} "
@@ -156,8 +166,12 @@ class SpeakerCapture(PassiveExtras):
         distance_m = distance_m if distance_m is not None else geometry.mic_distance()
         if distance_m is None:
             raise ValueError("give distance_m, or pivot_xyz and the mic position")
+        modes = list(dict.fromkeys(modes or ["raw"]))
+        bad = [m for m in modes if m not in MODES]
+        if bad or not modes:
+            raise ValueError(f"modes {bad} unknown; use any of {list(MODES)}")
         st = SpeakerState(speaker=speaker, drivers=self.drivers_of(speaker), distance_m=distance_m, points=points,
-                          variant=variant, geometry=geometry, environment=environment or Environment())
+                          variant=variant, geometry=geometry, environment=environment or Environment(), modes=modes)
         self._save(st)
         return st
 
@@ -198,8 +212,8 @@ class SpeakerCapture(PassiveExtras):
         for r in roles:
             await self.rig.set_crossover(r, raw=raw)
 
-    async def _sweep(self, role: str, kind: str, position: str, **extra) -> str:
-        rec, _ = await self.rig.measure([role], kind, position, **extra)
+    async def _sweep(self, roles: str | list[str], kind: str, position: str, **extra) -> str:
+        rec, _ = await self.rig.measure([roles] if isinstance(roles, str) else roles, kind, position, **extra)
         ir, fs, t0 = await self.rig.rew.impulse_response_timed(rec.id)
         self.s._write(f"data/{rec.id}.raw.json", {"fs": fs, "t0": t0, "data": [float(x) for x in ir]})
         return rec.id
@@ -212,15 +226,26 @@ class SpeakerCapture(PassiveExtras):
             return self._ask(st)
         p = st.points[st.index]
         took = []
+        pos = f"{p.plane} {p.angle:g}"
+
+        async def keep(roles: list[str], driver: str, mode: str) -> None:
+            mid = await self._sweep(roles, "driver" if mode == "raw" else f"driver_{mode}", pos, speaker=st.speaker,
+                                    driver=driver, plane=p.plane, angle=p.angle, mode=mode)
+            st.captures = [c for c in st.captures if not (c.driver == driver and c.plane == p.plane
+                                                          and c.angle == p.angle and c.mode == mode)]
+            st.captures.append(Capture(driver=driver, plane=p.plane, angle=p.angle, id=mid, mode=mode))
+            took.append(mid)
         try:
-            await self._raw(st.drivers, raw=True)
-            for d in st.drivers:
-                mid = await self._sweep(d, "driver", f"{p.plane} {p.angle:g}", speaker=st.speaker, driver=d,
-                                        plane=p.plane, angle=p.angle)
-                st.captures = [c for c in st.captures if not (c.driver == d and c.plane == p.plane
-                                                              and c.angle == p.angle)]
-                st.captures.append(Capture(driver=d, plane=p.plane, angle=p.angle, id=mid))
-                took.append(mid)
+            if "raw" in st.modes:
+                await self._raw(st.drivers, raw=True)
+                for d in st.drivers:
+                    await keep([d], d, "raw")
+                await self._raw(st.drivers, raw=False)
+            if "xo" in st.modes:  # through each output exactly as configured
+                for d in st.drivers:
+                    await keep([d], d, "xo")
+            if "sum" in st.modes:
+                await keep(list(st.drivers), "sum", "sum")
         finally:
             await self._raw(st.drivers, raw=False)  # never leave the speaker raw while waiting on the user
         bad = [f | {"driver": m.roles[0]} for m in self.s.measurements if m.id in took
@@ -257,9 +282,12 @@ class SpeakerCapture(PassiveExtras):
         d = json.loads((self.s.dir / "data" / f"{mid}.raw.json").read_text())
         return np.asarray(d["data"], float), float(d["fs"]), float(d["t0"])
 
-    def _protection(self, mid: str, driver: str) -> list[XoverFilter]:
+    def _snapshot(self, mid: str, driver: str):
         rec = next(m for m in self.s.measurements if m.id == mid)
-        return [f for f in (rec.snapshot.get(driver).crossover or []) if f.protect]
+        return rec.snapshot.get(driver).model_copy(deep=True)
+
+    def _protection(self, mid: str, driver: str) -> list[XoverFilter]:
+        return [f for f in (self._snapshot(mid, driver).crossover or []) if f.protect]
 
     def _gated_set(self, st: SpeakerState, gate: Gate, ppo: int, f_lo: float, f_hi: float,
                    t_ref_s: float | None) -> tuple[np.ndarray, float, list[str], list[tuple]]:
@@ -272,8 +300,9 @@ class SpeakerCapture(PassiveExtras):
         nyq = min(fs for _, fs, _ in irs.values()) / 2
         freqs = f_lo * 2.0 ** (np.arange(int(np.log2(min(f_hi, nyq * 0.95) / f_lo) * ppo) + 1) / ppo)
 
-        # ONE reference time for the whole set: the earliest on-axis arrival (or earliest anywhere)
-        ref_caps = [c for c in st.captures if (c.plane, c.angle) in ON_AXIS] or st.captures
+        # ONE reference time for the whole set: the earliest on-axis raw arrival (or earliest raw anywhere)
+        raw = [c for c in st.captures if c.mode == "raw"] or st.captures
+        ref_caps = [c for c in raw if (c.plane, c.angle) in ON_AXIS] or raw
         if t_ref_s is None:
             t_ref_s = min(arrival_s(*irs[c.id]) for c in ref_caps)
         expected = st.distance_m / st.environment.speed_of_sound
@@ -287,12 +316,16 @@ class SpeakerCapture(PassiveExtras):
             ir, fs, t0 = irs[c.id]
             h = gated_response(ir, fs, freqs, t_ref_s, gate, t0_s=t0)
             band = stable_band(ir, fs, freqs, t_ref_s, gate, t0_s=t0)
-            prot = self._protection(c.id, c.driver)
-            prot_note = "none"
+            prot = self._protection(c.id, c.driver) if c.mode != "sum" else []
+            prot_note = "none" if c.mode != "sum" else "included (a sum cannot be split per driver)"
+            if c.mode == "raw":  # the driver alone: take out everything the DSP output added
+                o = self._snapshot(c.id, c.driver)
+                o.crossover = None  # the protection filter is handled below, with its floor
+                h = h / o.transfer(freqs, fs_dsp)
             if prot:
                 h, first = remove_protection(h, cascade_response(xover_sections(prot, fs_dsp), freqs, fs_dsp))
                 lo = float(freqs[first]) if first is not None else None
-                prot_note = (f"divided out ({', '.join(f'{f.topology} {f.kind} {f.freq_hz:g} Hz' for f in prot)}); "
+                prot_note = (f"divided out ({', '.join(f.label() for f in prot)}); "
                              f"magnitude fully corrected above {lo:.0f} Hz" if lo else "divided out")
             rows.append((c, h, prot, prot_note, band))
         return freqs, t_ref_s, notes, rows
@@ -313,11 +346,16 @@ class SpeakerCapture(PassiveExtras):
         freqs, t_ref_s, notes, rows = self._gated_set(st, gate, ppo, f_lo, f_hi, t_ref_s)
         files, entries = [], []
         for c, h, prot, prot_note, band in rows:
-            rel = Path("frd") / c.driver / vituix_name(st.speaker, c.driver, c.plane, c.angle)
+            folder = c.driver if c.mode == "raw" else ("sum" if c.mode == "sum" else f"{c.driver}_xo")
+            rel = Path("frd") / folder / vituix_name(st.speaker, folder, c.plane, c.angle)
             band_txt = (f"gate check: stable within 0.5 dB when the gate end moves +1/+2 ms from "
                         f"{band[0]:.0f} to {band[1]:.0f} Hz" if band else "gate check: no stable band found")
-            hdr = [f"Rewdio raw driver capture: {st.speaker} {c.driver} {c.plane} {c.angle:g} deg ({st.variant})",
-                   f"REW measurement {c.id}; loopback time base; common delay removed {t_ref_s * 1000:.4f} ms",
+            what = {"raw": "raw driver capture (DSP output state divided out)",
+                    "xo": "driver through its output as configured (crossover, gain, delay, polarity, PEQ)",
+                    "sum": "all drivers together through their outputs"}[c.mode]
+            hdr = [f"Rewdio {what}: {st.speaker} {c.driver} {c.plane} {c.angle:g} deg ({st.variant})",
+                   f"REW measurement {c.id}; {self.s.config.timing_mode.value} time base; common delay removed "
+                   f"{t_ref_s * 1000:.4f} ms",
                    f"gate {-gate.pre_ms:g}..{gate.gate_ms:g} ms around the reference; 1/T floor "
                    f"~{gate.valid_from_hz:.0f} Hz",
                    band_txt,
@@ -325,7 +363,7 @@ class SpeakerCapture(PassiveExtras):
                    "VituixCAD: set this driver's X/Y/Z offsets to 0 (the offsets are in the phase)",
                    "freq(Hz)\tSPL(dB)\tphase(deg)"]
             files.append(FrdFile(out / rel, freqs, h, hdr).write())
-            entries.append({"driver": c.driver, "plane": c.plane, "angle": c.angle, "file": rel.as_posix(),
+            entries.append({"driver": c.driver, "mode": c.mode, "plane": c.plane, "angle": c.angle, "file": rel.as_posix(),
                             "measurement_id": c.id, "valid_band_hz": list(band) if band else None,
                             "protection_removed": [f.model_dump() for f in prot]})
 
@@ -373,11 +411,15 @@ class SpeakerCapture(PassiveExtras):
         system: dict[tuple, np.ndarray] = {}
         per: dict[str, dict[tuple, np.ndarray]] = {d: {} for d in st.drivers}
         for c, h, *_ in rows:
+            if c.mode != "raw":
+                continue
             k = (c.plane, c.angle)
             per[c.driver][k] = h
         for k in set().union(*[set(v) for v in per.values()]):
             if all(k in per[d] for d in st.drivers):  # only directions where every driver was measured
                 system[k] = sum(per[d][k] * xfer[d] for d in st.drivers)
+        if not system:
+            raise ValueError("speaker_report needs raw captures (plan with modes including 'raw')")
         spin = spinorama(system)
         curves = spin["curves"]
         valid = freqs >= max(gate.valid_from_hz, band_hz[0])
@@ -420,10 +462,13 @@ class SpeakerCapture(PassiveExtras):
             "band_hz": [float(freqs[0]), float(freqs[-1])],
             "drivers": [{"role": d, "dsp_output": chans[d].dsp_output,
                          "crossover_configured": [f.model_dump() for f in chans[d].crossover or []],
-                         "files": [e for e in entries if e["driver"] == d],
+                         "files": [e for e in entries if e["driver"] == d and e["mode"] == "raw"],
+                         "files_xo": [e for e in entries if e["driver"] == d and e["mode"] == "xo"],
                          "nearfield": [n for n in nf if n["driver"] == d],
                          "zma": [z for z in zma if z["driver"] == d],
                          "distortion": [x for x in dist if x["driver"] == d]} for d in st.drivers],
+            "sum_files": [e for e in entries if e["mode"] == "sum"],
+            "capture_modes": st.modes,
             "mic_cal": cfg.mic_cal_path,
             "dsp_sample_rate": cfg.dsp_sample_rate,
             "notes": notes,
