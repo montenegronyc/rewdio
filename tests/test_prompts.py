@@ -1,12 +1,12 @@
 """Spoken prompts and the phone's Ready: speech only while idle, Ready confirms and sweeps on its own, the
 Mac voice never uses REW's interface."""
 
-import pytest
+
+from test_speaker_capture import _rig
 
 from rewdio.dashboard.state import speaker_view
 from rewdio.engine.turntable import angles_for
 from rewdio.engine.voice import Voice, pick_voice
-from test_speaker_capture import _rig
 
 LISTING = """Daniel              en_GB    # Hello! My name is Daniel.
 Kate                en_GB    # Hello! My name is Kate.

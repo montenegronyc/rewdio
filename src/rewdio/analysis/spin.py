@@ -60,18 +60,21 @@ def _power(polars: dict[Key, np.ndarray], keys: list) -> tuple[np.ndarray | None
 
 
 def power_weights(keys: list[Key]) -> dict[Key, float]:
-    """Sphere-area weight of each direction. Every measured direction at off-axis angle t stands for its
-    share of the zone between t-5 and t+5 degrees (10 degree steps), split evenly between the points
-    measured at t. Normalised to sum to 1."""
+    """Sphere-area weight of each direction. The directions at off-axis angle t stand for the zone from half-way
+    to the next smaller angle to half-way to the next larger one (so 5 degree steps to 60 and 10 beyond are
+    weighted correctly, not as overlapping 10 degree zones), split evenly between the points measured at t.
+    Normalised to sum to 1."""
     by_angle: dict[float, list[Key]] = {}
     for k in keys:
         by_angle.setdefault(abs(k[1]), []).append(k)
+    ts = sorted(by_angle)
     w = {}
-    for t, ks in by_angle.items():
-        lo, hi = max(t - 5, 0), min(t + 5, 180)
+    for i, t in enumerate(ts):
+        lo = 0.0 if i == 0 else (ts[i - 1] + t) / 2
+        hi = 180.0 if i == len(ts) - 1 else (t + ts[i + 1]) / 2
         area = np.cos(np.deg2rad(lo)) - np.cos(np.deg2rad(hi))
-        for k in ks:
-            w[k] = area / len(ks)
+        for k in by_angle[t]:
+            w[k] = area / len(by_angle[t])
     s = sum(w.values())
     return {k: v / s for k, v in w.items()}
 

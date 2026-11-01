@@ -155,7 +155,9 @@ class _Solve:
         bundle = [self.subs[0]]
         hi = min(self.fc * b.sub_pair_xo_factor, b.sub_pair_max_hz)
         for r in self.subs[1:]:
-            probe = OutputState(gain_db=self.cfg.baseline.gain_db)
+            # its current filters (crossover, PEQ) stay; only what the fit sets is reset, like the first sub
+            probe = self.st.get(r).model_copy(update={"gain_db": self.cfg.baseline.gain_db, "delay_ms": 0.0,
+                                                      "invert": False}, deep=True)
             b_list = [predict(self.data[p][r], probe, self.fs) for p in self.positions]
             sol = optimize_pair(self.each(bundle), b_list, self.tgt, b.sub_pair_lo_hz, hi, self.cfg.dsp_max_delay_ms,
                                 self.t.pair)

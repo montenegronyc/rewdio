@@ -65,7 +65,9 @@ class Room:
         f = np.asarray(f, float)
         r = max(float(np.linalg.norm(np.subtract(src, mic))), 0.05)
         delay = np.exp(-2j * np.pi * f * r / C)
-        lf = self.kappa * self._modal(src, mic, f) * delay
+        lf = np.zeros(f.shape, complex)
+        low = f < self.transition_hz[1]  # the modal sum's weight is exactly 0 above the transition
+        lf[low] = self.kappa * self._modal(src, mic, f[low]) * delay[low]
         key = hashlib.sha1(repr(sorted([tuple(np.round(src, 2)), tuple(np.round(mic, 2))])).encode()).digest()
         rng = np.random.default_rng(int.from_bytes(key[:8], "little"))  # symmetric in src/mic
         knots = np.geomspace(100, 25000, 160)

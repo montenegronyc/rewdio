@@ -19,8 +19,9 @@ class Rig:
         self.rew = rew
         self.dsp = dsp
         # resume at the level gain staging chose; REW is re-told before every sweep (it may have restarted)
-        self.level_dbfs = session.workflow.crawl.get("level_dbfs", session.config.sweep.level_dbfs)
-        self.dirty = False  # a DSP write failed part-way; the next write re-sends everything
+        sw = session.config.sweep
+        lvl = session.workflow.crawl.get("level_dbfs", sw.level_dbfs)  # never trust a stored level unclamped
+        self.level_dbfs = round(max(sw.min_level_dbfs, min(sw.max_level_dbfs, lvl)), 1)
         self._rew_ready = False
 
     @property
@@ -80,8 +81,18 @@ class Rig:
         except Exception:
             self.dirty = True
             raise
-        self.dirty = False
-        self.s.dsp = DspState.model_validate(new.model_dump())
+        self.s.dsp = DspState.model_validate({**new.model_dump(), "unsynced": False})
+        self.s.save()
+
+    @property
+    def dirty(self) -> bool:
+        """A write failed part-way. Kept in the saved shadow state, so a restart or a settings change still re-sends
+        everything on the next write instead of trusting a shadow the hardware may not match."""
+        return self.s.dsp.unsynced
+
+    @dirty.setter
+    def dirty(self, value: bool) -> None:
+        self.s.dsp.unsynced = value
         self.s.save()
 
     def _copy(self) -> DspState:
@@ -134,6 +145,16 @@ class Rig:
         new.get(role).crossover = want
         await self._commit(new, [role])
         return self.s.dsp.get(role)
+
+    async def set_crossovers(self, roles: list[str], raw: bool) -> None:
+        """Every role's configured crossover (raw=True: protection filters only), in ONE write."""
+        new = self._copy()
+        for r in roles:
+            ch = self.cfg.channel(r)
+            if ch.crossover is None:
+                raise ValueError(f"{r} has no `crossover` in the config, so Rewdio does not manage its crossover")
+            new.get(r).crossover = [f for f in ch.crossover if f.protect] if raw else list(ch.crossover)
+        await self._commit(new, roles)
 
     async def solo(self, roles: list[str]) -> None:
         """Unmute exactly `roles`. Always sends the whole mute vector: never trust that a mute already stuck."""

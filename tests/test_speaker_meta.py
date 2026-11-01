@@ -71,7 +71,7 @@ async def test_manifest_v2_carries_geometry_environment_and_layout(sim_runtime, 
     out = tmp_path / "measurements" / "2026-10-28_garden_offset10_riser40"
     assert res["dir"] == str(out)
     m = json.loads((out / "rewdio_session.json").read_text())
-    assert m["schema"] == "rewdio.speaker-session/2" and m["variant"] == "offset10_riser40"
+    assert m["schema"] == "rewdio.speaker-session/3" and m["variant"] == "offset10_riser40"
     assert m["geometry"]["horn_id"] == "9756570e77f12f08" and m["geometry"]["riser_h"] == 0.4
     assert m["geometry"]["pivot_xyz"] == [0.0, 0.0, 0.0] and "y to the speaker's left" in m["geometry"]["frame"]
     assert m["environment"]["temperature_c"] == 12.5 and m["environment"]["indoor"] is False

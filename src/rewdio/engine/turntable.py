@@ -23,6 +23,9 @@ class Point(BaseModel):
 
 
 def _plane_order(angles: list[float], both_sides: bool) -> list[float]:
+    frac = [a for a in angles if float(a) != round(float(a))]
+    if frac:  # VituixCAD file names carry whole degrees: 2.5 and 3 would overwrite each other
+        raise ValueError(f"angles must be whole degrees; got {frac}")
     pos = sorted({round(float(a), 3) for a in angles if 0 < a <= 180})
     if not both_sides:
         return pos

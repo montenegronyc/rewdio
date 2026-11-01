@@ -142,11 +142,14 @@ def optimize_pair(a_list: list[Response], b_list: list[Response], target_db: np.
     tgt = np.asarray(target_db)[m][core]
     A = np.array([r.h[m] for r in a_list])  # positions x freqs
     B = np.array([r.h[m] for r in b_list])
+    AA, BB = np.abs(A) ** 2, np.abs(B) ** 2
 
     def evaluate(delays, gains, inverts):
         if coherent:
             g = 10 ** (gains / 20) * np.where(inverts, -1.0, 1.0)
-            p = np.abs(A[None] + (g[:, None, None] * B[None]) * _phasors(fm, delays)[:, None, :]) ** 2
+            ud, inv = np.unique(delays, return_inverse=True)
+            X = (np.conj(A)[None] * B[None] * _phasors(fm, ud)[:, None, :]).real
+            p = AA[None] + (g ** 2)[:, None, None] * BB[None] + 2 * g[:, None, None] * X[inv]
             coh = (np.abs(A)[None] + np.abs(g)[:, None, None] * np.abs(B)[None]) ** 2
             loss = -10 * np.log10(np.maximum(p[:, :, core], 1e-30) / np.maximum(coh[:, :, core], 1e-30))
             loss = loss.mean(axis=(1, 2))

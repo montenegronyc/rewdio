@@ -111,6 +111,7 @@ class ProductionExtras:
             finally:
                 rec.ended = time.time()
                 await self._raw(st.drivers, raw=False)
+                await self.rig.unmute_all()
                 self._save(st)
         return {"ok": True, "driver": driver, "minutes": minutes, "level_dbfs": level,
                 "next": f"wire the impedance jig and call speaker_impedance(driver='{driver}', label='post_soak')"}

@@ -31,6 +31,7 @@ def _rig(rt):
     ]
     rt.session.config.timing_reference_channel = "LW"
     rt.session.config.timing_mode = TimingMode.LOOPBACK  # speaker captures need absolute phase
+    rt.session.config.mic_sensitivity_dbfs = -30.0  # the simulator's SPL is calibrated
     w = rt.world
     w.speakers = [Speaker("LW", LW, "main", 0, MODEL), Speaker("LH", LH, "main", 1, MODEL)]
     w.room.reflections = []  # free field above the modal region: the test is about phase, not gating
@@ -103,7 +104,7 @@ async def test_polar_capture_exports_phase_true_frds(sim_runtime, tmp_path):
         assert np.allclose(np.abs(ratio), r_ratio, rtol=0.05)  # protection divided out: levels match
 
     m = json.loads((out / "rewdio_session.json").read_text())
-    assert m["schema"] == "rewdio.speaker-session/2" and m["geometry"]["driver_offsets_in_phase"]
+    assert m["schema"] == "rewdio.speaker-session/3" and m["geometry"]["driver_offsets_in_phase"]
     assert [d["role"] for d in m["drivers"]] == ["LW", "LH"]
     assert m["drivers"][1]["files"][0]["protection_removed"][0]["protect"] is True
     # the removed delay is the onset of the first arrival (a little ahead of the peak in this band-limited

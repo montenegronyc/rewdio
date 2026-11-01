@@ -92,6 +92,8 @@ class OutputState(BaseModel):
 class DspState(BaseModel):
     outputs: dict[str, OutputState] = Field(default_factory=dict, description="keyed by channel role")
     master_volume_db: float | None = None
+    unsynced: bool = Field(default=False, description="a write failed part-way: the hardware may differ from this "
+                                                      "state, so the next write re-sends everything (survives restarts)")
 
     def get(self, role: str) -> OutputState:
         return self.outputs.setdefault(role, OutputState())

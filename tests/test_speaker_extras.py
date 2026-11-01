@@ -92,3 +92,20 @@ async def test_horn_impedance_reports_the_cap_and_woofer_does_not(sim_runtime, t
     await _run(rt)
     rt.speaker.export(tmp_path)
     assert "protection cap" in (tmp_path / "zma" / "L_LH.zma").read_text()
+
+
+async def test_distortion_guards_its_reference_and_calibration_and_restores_on_failure(sim_runtime):
+    rt = await _set(sim_runtime)
+    with pytest.raises(ValueError, match="ref_hz"):
+        await rt.speaker.distortion("LH", [80.0], ref_hz=500.0)  # below the horn's 700 Hz guard
+    rt.session.config.mic_sensitivity_dbfs = None
+    with pytest.raises(ValueError, match="not calibrated"):
+        await rt.speaker.distortion("LH", [80.0])
+    rt.session.config.mic_sensitivity_dbfs = -30.0
+    before = rt.rig.level_dbfs
+    rt.fake_rew.fail_measures = 50  # REW dies mid-run
+    with pytest.raises(Exception):
+        await rt.speaker.distortion("LH", [80.0])
+    assert rt.session.dsp.get("LH").crossover == rt.session.config.channel("LH").crossover  # not left raw
+    assert rt.world.dsp[1].xover and len(rt.world.dsp[1].xover) > 1
+    assert rt.rig.level_dbfs == before and not any(o.mute for o in rt.world.dsp.values())

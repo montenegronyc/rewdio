@@ -9,7 +9,9 @@ from .minidsp.state import XoverFilter
 def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the server's own names
     @mcp.tool()
     async def set_crossover(role: str, filters: list[dict] | None = None, raw: bool = False) -> dict:
-        """Write a channel's crossover block. Only for channels with `crossover` in the config.
+        """Write a channel's crossover block. Only for channels with `crossover` in the config. Note: speaker_step,
+        speaker_nearfield and the other speaker captures write the CONFIGURED crossover back when they finish, and
+        speaker_report always uses the configured one; to audition a different crossover, put it in the config.
 
         filters: [{"kind": "HP"|"LP", "topology": "LR4"|"LR8"|"LR2"|"BW2"|"BW4", "freq_hz": 1200,
         "protect": false}]; omit to restore the configured crossover. raw=True keeps only protection
@@ -74,6 +76,8 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
             pts = points_from(AnglePlan.model_validate(angles))
         else:
             pts = angles_for(planes or ["hor"], step_deg, max_deg, symmetric)
+        if rt.busy:
+            return BUSY
         st = rt.speaker.plan(speaker, pts, distance_m, Geometry.from_inputs(**(geometry or {})),
                              Environment.model_validate(environment or {}), variant, replace, modes)
         return {"ok": True, "drivers": st.drivers, "angles": len(st.points), "sweeps": len(st.points) * len(st.drivers),
@@ -82,22 +86,30 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
 
 
     @mcp.tool()
-    async def speaker_step() -> dict:
-        """Advance the speaker capture. Statuses: user_action_required (relay action.instructions, then call
-        `speaker_confirm`; the paired phone and the Mac voice say action.speech themselves), measured (every driver
-        swept at this angle; `next` is the following prompt), retry (a critical quality finding: fix it, then step
-        again), done (call export_frd). Waits `speaker_prompts.settle_s` after the confirmation before sweeping."""
+    async def speaker_step(level_dbfs: float | None = None, skip: bool = False) -> dict:
+        """Advance the speaker capture. Statuses:
+        - user_action_required: relay action.instructions, wait for the user, then call `speaker_confirm` (from the
+          paired phone Lee taps Ready instead, which confirms and sweeps by itself; the phone and the Mac voice say
+          action.speech).
+        - measured: every driver swept at this angle; `next` holds the following prompt.
+        - retry: a critical quality finding (clipped, too quiet...). Fix the cause and step again; pass level_dbfs
+          to change the sweep level (e.g. 6 dB lower after 'clipped'), or skip=true to give up on this angle.
+        - done: call export_frd.
+        Waits speaker_prompts.settle_s after the confirmation before sweeping."""
         rt = runtime()
         if rt.busy:
             return BUSY
-        return _clean(await rt.speaker_step())
+        return _clean(await rt.speaker_step(level_dbfs, skip))
 
 
     @mcp.tool()
     async def speaker_confirm(key: str | None = None) -> dict:
         """The user turned the speaker as asked. Then call `speaker_step` again. (From the paired phone, Lee taps
         Ready instead, which confirms and sweeps on its own; `speaker_step` then just reports.)"""
-        return runtime().speaker_confirm(key)
+        rt = runtime()
+        if rt.busy:
+            return BUSY
+        return rt.speaker_confirm(key)
 
 
     @mcp.tool()
@@ -148,7 +160,7 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
 
 
     @mcp.tool()
-    async def export_frd(out_dir: str | None = None, gate_ms: float = 5.0, pre_ms: float = 1.0,
+    async def export_frd(out_dir: str | None = None, gate_ms: float = 5.0, pre_ms: float = 2.0,
                          ppo: int = 48, root: str | None = None) -> dict:
         """Write the captured set: <root>/measurements/<date>_<site>_<variant>/ (root defaults to REWDIO_HOME;
         out_dir overrides the whole path) with rewdio_session.json (schema rewdio.speaker-session/2) at the
@@ -157,6 +169,8 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
         reflection; each file also reports the band that survives moving the gate end +1/+2 ms."""
         from .analysis.frd import Gate
         rt = runtime()
+        if rt.busy:
+            return BUSY
         return _clean(rt.speaker.export(out_dir, Gate(pre_ms=pre_ms, gate_ms=gate_ms), ppo=ppo, root=root))
 
 
@@ -167,6 +181,8 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
         flat listening window, PIR falling ~0.5 to 1 dB/octave, smooth sound-power directivity."""
         from .analysis.frd import Gate
         rt = runtime()
+        if rt.busy:
+            return BUSY
         return _clean(rt.speaker.report(Gate(gate_ms=gate_ms), (band_lo_hz, band_hi_hz)))
 
     @mcp.tool()
@@ -175,7 +191,10 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
         """Change the open capture set's metadata without touching its captures: geometry and environment fields
         (merged in), the tower's serial, whether this set is THE reference every later tower is held to, and
         measured part values from the LCR meter (e.g. {"L1_mH": 1.52, "C1_uF": 22.1}). Export again afterwards."""
-        st = runtime().speaker.update(geometry, environment, serial, reference, parts)
+        rt = runtime()
+        if rt.busy:  # a running sweep holds its own copy of the set and would overwrite this when it saves
+            return BUSY
+        st = rt.speaker.update(geometry, environment, serial, reference, parts)
         return {"ok": True, "serial": st.serial, "reference": st.reference, "parts": st.parts,
                 "not_recorded": st.geometry.missing() + st.environment.missing()}
 

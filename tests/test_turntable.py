@@ -69,3 +69,27 @@ async def test_simulated_rotation_follows_the_convention(sim_runtime, tmp_path):
         phase[a] = -np.polyfit(f[band], ph, 1)[0] / (2 * np.pi) * 1000  # horn lag behind woofer, ms
     assert phase[30] < 0 < phase[-30]  # +30: the horn (on the left) arrives first
     assert phase[30] == pytest.approx(-0.10 * np.sin(np.deg2rad(30)) / 0.343, rel=0.15)
+
+
+def test_fractional_angles_and_centimetre_heights_are_refused():
+    from pydantic import ValidationError
+
+    from rewdio.engine.speaker_meta import AnglePlan, Geometry
+    with pytest.raises(ValueError, match="whole degrees"):
+        points_from(AnglePlan(hor=[2.5, 5]))
+    with pytest.raises(ValidationError):
+        Geometry(riser_h=40)  # "a 40 cm riser" passed as 40 m
+
+
+async def test_retry_has_a_way_out(sim_runtime):
+    rt = sim_runtime()
+    _rig(rt)
+    await rt.rig.assert_baseline()
+    rt.speaker.plan("L", angles_for(["hor"], 90, 90, symmetric=True), 2.0)
+    await rt.speaker_step()
+    rt.speaker_confirm()
+    rep = await rt.speaker_step(skip=True)  # give up on 0 degrees
+    assert rep["status"] == "user_action_required" and rt.speaker.state().skipped[0].angle == 0
+    rt.speaker_confirm()
+    rep = await rt.speaker_step(level_dbfs=-40.0)
+    assert rep["status"] == "measured" and rt.rig.level_dbfs == -40.0

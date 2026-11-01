@@ -23,7 +23,7 @@ This is a separate workflow from the room calibration. The autopilot does not ch
    with only the protection filters active, so a compression driver never sees a full-range sweep.
    The protection filter's exact response is divided out on export.
 3. **Raw capture + FRD export.** Gated complex response from the raw impulse, on the loopback time
-   base. One common delay (default: mic distance / c) is removed from every file, never a per-file
+   base. One common delay (the earliest on-axis raw arrival) is removed from every file, never a per-file
    re-centre, so relative phase between drivers and angles survives. VituixCAD naming:
    `<speaker>_<driver> hor 30.frd`. In VituixCAD, set driver X/Y/Z offsets to zero: the offsets are
    already in the phase.

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from pydantic import BaseModel
@@ -15,6 +16,9 @@ CAP_CORNER_HZ = 350.0  # SoundSible BUILD_PLAN: -3 dB about an octave below the 
 E12 = (1.0, 1.2, 1.5, 1.8, 2.2, 2.7, 3.3, 3.9, 4.7, 5.6, 6.8, 8.2)
 MAX_LISTENING_SPL_DB = 95.0  # Lee never listens above 95 dB SPL at the seat: no reason to drive drivers past it
 DEFAULT_DISTORTION_SPL_DB = (85.0, 90.0, 95.0)
+
+if TYPE_CHECKING:
+    from .speaker import SpeakerState
 
 
 def protection_cap(freqs: np.ndarray, ohm: np.ndarray, corner_hz: float = CAP_CORNER_HZ) -> dict:
@@ -29,7 +33,8 @@ def protection_cap(freqs: np.ndarray, ohm: np.ndarray, corner_hz: float = CAP_CO
     part = max((m * decade for m in E12 if m * decade <= exact * (1 + 1e-9)), default=decade)
     return {"corner_hz": corner_hz, "ohm_at_corner": round(z, 2), "exact_uf": round(exact, 2),
             "suggested_uf": round(part, 3), "suggested_corner_hz": round(1e6 / (2 * np.pi * z * part), 0),
-            "series": "E12, rounded down", "voltage_note": "film capacitor rated 100 V or more"}
+            "series": "E12, rounded down", "voltage_note": "film capacitor rated 100 V or more",
+            "where": "in series with the compression driver's + lead, between the amplifier and the driver"}
 
 
 class Impedance(BaseModel):
@@ -77,6 +82,7 @@ class PassiveExtras:
                                "(Measure, Impedance, with the jig) and call again with rew_measurement_id") from e
             finally:
                 await self._raw(st.drivers, raw=False)
+                await self.rig.unmute_all()
             rew_measurement_id = summary["uuid"]
         spec = await rew.impedance(rew_measurement_id, ppo=ppo)
         ohm = np.asarray(spec.mag_db, float)  # ohms for an impedance measurement
@@ -110,15 +116,15 @@ class PassiveExtras:
 
     async def distortion(self, driver: str, spl_db: list[float], ref_hz: float = 1000.0,
                          band_hz: tuple[float, float] | None = None, tolerance_db: float = 1.0,
-                         ppo: int = 12) -> dict:
+                         ppo: int = 12, allow_uncalibrated: bool = False) -> dict:
         """Sweep one driver (raw, protection kept) at each target SPL (measured at `ref_hz` at the mic, which
-        stays where the set records it) and keep REW's harmonic distortion. The level is set by measuring
-        and correcting, up to three sweeps per target."""
+        stays where the set records it) and keep REW's harmonic distortion. The level search starts at the
+        quietest sweep level and steps up at most gain_staging.max_step_up_db per sweep, up to five sweeps."""
         st = self._require()
         if driver not in st.drivers:
             raise ValueError(f"{driver} is not a driver of {st.speaker}; drivers: {st.drivers}")
         cfg = self.s.config
-        sw = cfg.sweep
+        sw, gs = cfg.sweep, cfg.tuning.gain_staging
         loud = [x for x in spl_db if x > MAX_LISTENING_SPL_DB]
         if loud:
             raise ValueError(f"targets {loud} dB are above the {MAX_LISTENING_SPL_DB:g} dB SPL listening ceiling")
@@ -126,42 +132,58 @@ class PassiveExtras:
         if over:
             raise ValueError(f"targets {over} dB are within 3 dB of REW's SPL abort limit ({sw.max_spl_db:g} dB, "
                              "sweep.max_spl_db). Raising that limit is Lee's call; it protects the drivers")
+        if cfg.mic_sensitivity_dbfs is None and not allow_uncalibrated:
+            raise ValueError("REW's SPL is not calibrated (mic_sensitivity_dbfs is not set), so '95 dB' would not "
+                             "mean 95 dB at the seat. Set the mic sensitivity first (set_mic_calibration), or pass "
+                             "allow_uncalibrated=true for relative numbers only")
         band = band_hz or self._driver_band(driver)
-        rew, results = self.rig.rew, []
+        prot = [f for f in cfg.channel(driver).crossover or [] if f.protect and f.kind == "HP"]
+        floor = max([band[0] * 1.25, *(1.2 * f.freq_hz for f in prot)])  # inside the band, past the guard's knee
+        if not floor <= ref_hz <= band[1] / 1.25:
+            raise ValueError(f"ref_hz {ref_hz:g} must sit inside where {driver} plays: between {floor:g} and "
+                             f"{band[1] / 1.25:g} Hz for this band and protection filter")
+        rew, results, prev_level = self.rig.rew, [], self.rig.level_dbfs
         try:
             await self._raw(st.drivers, raw=True)
             await self.rig.prepare_rew()
             await rew.configure_sweep(int(band[0]), int(band[1]), sw.length, sw.start_delay_s, sw.rew_sample_rate,
                                       sw.fill_silence_with_dither)
-            for target in sorted(spl_db):  # quietest first: the level search never starts loud
+            await self.rig.set_level(sw.min_level_dbfs)  # every level search starts quiet
+            for target in sorted(spl_db):  # quietest target first
                 rec = measured = None
-                for _ in range(3):
+                for _ in range(5):
                     rec, resp = await self.rig.measure([driver], "distortion", f"{target:g} dB", speaker=st.speaker,
                                                        driver=driver, target_spl_db=target)
                     m = (resp.freqs >= ref_hz * 2 ** (-1 / 6)) & (resp.freqs <= ref_hz * 2 ** (1 / 6))
-                    measured = float(np.median(resp.mag_db[m]))
+                    measured = float(np.median(resp.mag_db[m])) if m.any() else float("nan")
+                    if not np.isfinite(measured):
+                        raise ValueError(f"no reading at {ref_hz:g} Hz: check the band and the wiring")
                     if abs(measured - target) <= tolerance_db:
                         break
-                    want = self.rig.level_dbfs + (target - measured)
-                    if want > sw.max_level_dbfs and self.rig.level_dbfs >= sw.max_level_dbfs:
+                    step = float(np.clip(target - measured, -gs.max_step_down_db, gs.max_step_up_db))
+                    if step > 0 and self.rig.level_dbfs >= sw.max_level_dbfs:
                         break  # already at the level ceiling: record what it can do
-                    await self.rig.set_level(want)
+                    await self.rig.set_level(self.rig.level_dbfs + step)
                 headers, rows = await rew.distortion(rec.id, ppo=ppo)
                 self.s._write(f"data/{rec.id}.dist.json", {"headers": headers, "rows": rows})
                 st.distortion = [d for d in st.distortion if not (d.driver == driver and d.target_spl_db == target)]
                 st.distortion.append(Distortion(driver=driver, id=rec.id, target_spl_db=target,
                                                 measured_spl_db=round(measured, 2), ref_hz=ref_hz,
-                                                distance_m=st.distance_m, level_dbfs=self.rig.level_dbfs,
+                                                distance_m=st.distance_m, level_dbfs=rec.level_dbfs,
                                                 band_hz=band))
+                self._save(st)
                 results.append({"target_spl_db": target, "measured_spl_db": round(measured, 2),
-                                "level_dbfs": self.rig.level_dbfs, "id": rec.id,
+                                "level_dbfs": rec.level_dbfs, "id": rec.id,
                                 "reached": abs(measured - target) <= tolerance_db})
-        finally:
-            self.rig._rew_ready = False  # the next sweep re-applies the normal sweep range and level
-            await self.rig.set_level(sw.level_dbfs)
-            await self._raw(st.drivers, raw=False)
-        self._save(st)
-        return {"ok": True, "driver": driver, "band_hz": list(band), "levels": results}
+        finally:  # crossover back FIRST: if REW is what failed, the speaker must not be left raw
+            try:
+                await self._raw(st.drivers, raw=False)
+                await self.rig.unmute_all()
+            finally:
+                self.rig._rew_ready = False  # the next sweep re-applies the normal sweep range
+                self.rig.level_dbfs = prev_level  # and the level it was at before, not the config default
+        return {"ok": True, "driver": driver, "band_hz": list(band), "levels": results,
+                "spl_calibrated": cfg.mic_sensitivity_dbfs is not None}
 
     def _export_zma(self, st: SpeakerState, out: Path) -> list[dict]:
         entries = []

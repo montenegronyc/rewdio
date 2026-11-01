@@ -30,10 +30,11 @@ class Geometry(BaseModel):
     pivot_xyz: tuple[float, float, float] | None = Field(default=None, description="Turntable axis position "
                                                          "(upright frame, recorded once for both planes)")
     mic_xyz: tuple[float, float, float] | None = None
-    riser_h: float | None = Field(default=None, ge=0, description="Sand-riser height under the woofer box")
-    origin_height_m: float | None = Field(default=None, ge=0, description="Ground to the frame origin (top of the "
+    riser_h: float | None = Field(default=None, ge=0, le=2.0, description="Sand-riser height under the woofer box, "
+                                                                          "metres (0.4 for a 40 cm riser)")
+    origin_height_m: float | None = Field(default=None, ge=0, le=5.0, description="Ground to the frame origin (top of the "
                                                                           "woofer box): riser plus feet plus box")
-    mic_height_m: float | None = Field(default=None, ge=0, description="Mic above the ground")
+    mic_height_m: float | None = Field(default=None, ge=0, le=5.0, description="Mic above the ground, metres")
     horn_offset_m: float | None = Field(default=None, ge=0, le=0.30, description="Horn forward of flush on its rails")
     horn_stem_lift_m: float | None = Field(default=0.04, ge=0)
     horn_id: str | None = Field(default=None, description="A SoundSible variant key (16 hex), 'stock:<name>', or a label")

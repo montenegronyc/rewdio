@@ -77,3 +77,14 @@ def test_gate_check_finds_the_band_a_late_reflection_spoils():
     # a reflection 0.5 ms after the gate end: moving the end +1 ms lets it in, so little stays stable
     dirty = stable_band(_impulse(0.0030, refl_s=0.0085), FS, f, 0.0030, Gate(gate_ms=5.0))
     assert dirty is None or (dirty[1] - dirty[0]) < (clean[1] - clean[0]) / 4
+
+
+def test_a_driver_arriving_before_the_reference_is_not_attenuated():
+    f = np.geomspace(1000, 15000, 100)
+    t = np.arange(4800) / FS
+
+    def pulse(d):  # the same short pulse wherever it sits (no long window shaping its level)
+        return np.sinc((t - d) * FS) * np.cos(np.clip((t - d) * np.pi / 0.001, -np.pi / 2, np.pi / 2)) ** 2
+    on_time = gated_response(pulse(0.0030), FS, f, 0.0030, Gate(pre_ms=1.0, gate_ms=4.0))
+    early = gated_response(pulse(0.0026), FS, f, 0.0030, Gate(pre_ms=1.0, gate_ms=4.0))  # 0.4 ms early
+    assert np.max(np.abs(20 * np.log10(np.abs(early) / np.abs(on_time)))) < 0.1

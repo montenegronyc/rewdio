@@ -65,6 +65,10 @@ class Runtime:
     def confirm(self, key: str | None, xyz: list[float] | None, note: str | None = None) -> dict:
         pending = self.session.workflow.pending_action
         if pending is None:
+            st = self.speaker.state()
+            if st is not None and not st.done and st.rotated_to != st.index:
+                return {"ok": False, "message": "the room calibration is not waiting; a speaker set is: use "
+                                                "speaker_confirm for the turntable"}
             return {"ok": False, "message": "nothing is waiting on the user"}
         sim = self.apply_sim_effects(pending, xyz)
         res = self.autopilot.confirm(key, xyz, note)
@@ -102,9 +106,9 @@ class Runtime:
             res["simulated_effects"] = sim
         return res
 
-    async def speaker_step(self) -> dict:
+    async def speaker_step(self, level_dbfs: float | None = None, skip: bool = False) -> dict:
         async with self.lock:
-            rep = await self.speaker.step()
+            rep = await self.speaker.step(level_dbfs, skip)
         self.session.save()  # bumps the version: the phone redraws
         return rep
 

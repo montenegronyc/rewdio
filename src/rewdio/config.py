@@ -88,6 +88,14 @@ class SweepSettings(_Strict):
         description="Keep the digital stream alive between sweeps so an S/PDIF DAC stays locked")
     rew_sample_rate: int = Field(description="REW's audio sample rate, used to size the sweep timeout")
 
+    @model_validator(mode="after")
+    def _levels(self) -> SweepSettings:
+        if not self.min_level_dbfs <= self.level_dbfs <= self.max_level_dbfs <= 0:
+            raise ValueError("sweep levels must satisfy min_level_dbfs <= level_dbfs <= max_level_dbfs <= 0 dBFS")
+        if not 60 <= self.max_spl_db <= 120:
+            raise ValueError("sweep.max_spl_db is REW's SPL abort limit, the drivers' safety net: 60 to 120 dB")
+        return self
+
 
 class RewClientSettings(_Strict):
     read_timeout_s: float
@@ -388,9 +396,10 @@ class SystemConfig(_Strict):
         return self
 
     def peq_slots_for(self, role: str) -> list[int]:
-        """Subs use peq_slots (bass EQ); mains use balance.peq_slots (L/R balance); drivers get none yet."""
+        """Subs use peq_slots (bass EQ); mains use balance.peq_slots (L/R balance). Driver outputs: all ten, so
+        nothing left over from room calibration or the miniDSP plugin colours a driver capture unrecorded."""
         if self.channel(role).kind == ChannelKind.DRIVER:
-            return []
+            return list(range(10))
         return self.peq_slots if self.channel(role).kind == ChannelKind.SUB else self.balance.peq_slots
 
     def device_of(self, role: str) -> int:

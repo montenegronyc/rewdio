@@ -117,3 +117,24 @@ def test_phone_inputs_are_validated(sim_runtime):
         assert c.post("/api/confirm", json={"key": "k", "xyz": [1, "a", 2]}).status_code == 400
         assert c.post("/api/confirm", json={"key": "k", "xyz": [1, 2]}).status_code == 400
         assert c.post("/api/crawl/cell", json={"code": 5}).status_code == 400
+
+
+async def test_a_failed_write_is_remembered_across_a_restart(sim_runtime, tmp_path):
+    rt = sim_runtime()
+    await rt.rig.assert_baseline()
+    rt.fake_dsp.fail_writes = 1
+    with pytest.raises(MiniDSPError):
+        await rt.rig.set_channel("SUB1", gain_db=-3.0)
+    again = Runtime("t0", root=str(tmp_path), simulate=True, world=rt.world)  # restart before the next write
+    assert again.rig.dirty
+    n = len(again.fake_dsp.writes)
+    await again.rig.solo(["L"])  # a mute-only write is upgraded to a full re-send
+    assert "gain" in again.fake_dsp.writes[n]["outputs"][0] and not again.rig.dirty
+
+
+def test_sweep_levels_are_validated():
+    d = default_dict()
+    d["sweep"]["level_dbfs"] = 3.0
+    from rewdio.config import SystemConfig
+    with pytest.raises(ValidationError, match="sweep levels"):
+        SystemConfig.model_validate(d)

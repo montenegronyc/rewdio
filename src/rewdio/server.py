@@ -32,6 +32,16 @@ How to run a calibration:
 
 The manual tools (`measure`, `set_channel`, `solo`, `analyze_measurement`) are for spot checks and
 for answering the user's questions; the autopilot does not need them.
+
+Measuring a speaker's drivers (for VituixCAD / SoundSible; docs/TWO_WAY.md) is a separate workflow:
+1. Channels of kind 'driver' with `speaker` and `crossover` (protection filters protect=true), and
+   timing_mode 'loopback'. On new hardware run `rig_selftest` first and report every FAIL.
+2. `speaker_plan` (angles, variant, geometry, environment, modes), then `speaker_step` repeatedly,
+   relaying each prompt and calling `speaker_confirm` when the user has turned the speaker (or Lee taps
+   Ready on the paired phone). `rewdio_status` shows where the set is.
+3. Optional: `speaker_nearfield` (before or after a polar set, never in the middle),
+   `speaker_impedance`, `speaker_distortion`, `speaker_transfer`, `speaker_soak`, `speaker_update`.
+4. `export_frd`, then `speaker_report`; for a shipped tower, `qa_run` against the reference set.
 """
 
 _rt: Runtime | None = None
@@ -110,6 +120,8 @@ async def rewdio_status() -> dict:
                           "status": {d: await rt.dsp.status(d) for d in rt.session.config.dsp_devices}}
     except Exception as e:
         out["minidsp"] = {"error": str(e)}
+    from .dashboard.state import speaker_view
+    out["speaker_set"] = speaker_view(rt)
     return _clean(out)
 
 
