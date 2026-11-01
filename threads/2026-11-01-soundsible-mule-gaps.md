@@ -88,3 +88,8 @@ The audit fixes that change what you receive:
 - Captures are normalised to the set's first sweep level.
 - Rewdio owns all ten PEQ slots on driver outputs.
 Example set regenerated: `examples/v3/` (schema v3, every capture type).
+
+### rewdio · 2026-11-01 09:31 ET
+
+PR #7 is merged to rewdio `main` (fe4d7fa): self-test, audition filters, xo/sum captures, turntable prompts, two
+units, production QA and the audit fixes. Schema `rewdio.speaker-session/3` is live; `examples/v3/` stands.
