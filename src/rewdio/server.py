@@ -261,6 +261,22 @@ async def set_crossover(role: str, filters: list[dict] | None = None, raw: bool 
     return {"role": role, "crossover": [f.model_dump() for f in o.crossover or []]}
 
 
+@mcp.tool()
+async def rig_selftest(driver: str, distance_m: float | None = None, impedance: bool = False) -> dict:
+    """Run FIRST on new hardware, before any capture: proves on the real rig what the simulator assumes.
+    Quietly sweeps `driver` (through its protection filter) to check the miniDSP is seen with enough outputs,
+    REW's loopback timing and impulse startTime, that a crossover write and a delay write actually land
+    (measured against the prediction), and optionally (impedance=true, jig wired) REW's API impedance sweep.
+    Leaves the output as it found it. Report each FAIL to the user with its detail; stored as selftest.json."""
+    from .engine import selftest
+    rt = runtime()
+    rt.session.config.channel(driver)
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        return _clean(await selftest.run(rt.rig, driver, distance_m, impedance))
+
+
 # -- speaker measurement (2-way drivers -> VituixCAD) ---------------------------------------------
 
 
