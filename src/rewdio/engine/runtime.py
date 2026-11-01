@@ -126,6 +126,20 @@ class Runtime:
             self.speaker.last["error"] = f"{type(e).__name__}: {e}"
             self.session.save()
 
+    def start_soak(self, driver: str, minutes: float, spl_db: float) -> dict:
+        """Run a soak in the background (it can take an hour); the result lands in the capture set."""
+        if self.busy or (self._task is not None and not self._task.done()):
+            return {"ok": False, "message": "the rig is busy"}
+        level = self.speaker.soak_level(driver, spl_db)  # refuse bad requests now, not an hour later
+
+        async def go():
+            async with self.lock:
+                return await self.speaker.soak(driver, minutes, spl_db)
+        self._task = asyncio.create_task(go())
+        self._task.add_done_callback(self._speaker_done)
+        return {"ok": True, "running": True, "driver": driver, "minutes": minutes, "level_dbfs": level,
+                "next": "when it finishes, wire the impedance jig and call speaker_impedance(label='post_soak')"}
+
     def advance_in_background(self) -> bool:
         """Kick the autopilot from the phone. False if a run is already going."""
         if self.busy or (self._task is not None and not self._task.done()):

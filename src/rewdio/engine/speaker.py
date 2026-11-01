@@ -30,13 +30,14 @@ from ..config import ChannelKind, TimingMode
 from ..minidsp.biquad import cascade_response
 from ..minidsp.state import XoverFilter, xover_sections
 from .rig import Rig
+from .production import ProductionExtras, Soak, Transfer
 from .speaker_extras import Distortion, Impedance, PassiveExtras
 from .speaker_meta import ANGLE_CONVENTION, FRAME, Environment, Geometry, now_et, set_folder
 from .turntable import Point, angles_for, points_from, prompt  # noqa: F401 (re-exported)
 from .store import Session
 
 ON_AXIS = {("hor", 0.0), ("ver", 0.0)}
-MANIFEST_SCHEMA = "rewdio.speaker-session/2"
+MANIFEST_SCHEMA = "rewdio.speaker-session/3"
 
 
 MODES = ("raw", "xo", "sum")  # driver alone / driver through its output as configured / all drivers together
@@ -68,6 +69,12 @@ class SpeakerState(BaseModel):
     impedance: list[Impedance] = Field(default_factory=list)
     distortion: list[Distortion] = Field(default_factory=list)
     exported_to: str | None = None
+    serial: str | None = None
+    reference: bool = False  # this set is the reference every later tower is held to
+    parts: dict = Field(default_factory=dict)  # measured part values, e.g. {"L1_mH": 1.52}
+    transfers: list[Transfer] = Field(default_factory=list)
+    pending_transfer: dict | None = None
+    soaks: list[Soak] = Field(default_factory=list)
     index: int = 0
     rotated_to: int | None = None  # index of the point the user last confirmed rotating to
     captures: list[Capture] = Field(default_factory=list)
@@ -79,7 +86,7 @@ class SpeakerState(BaseModel):
         return self.index >= len(self.points)
 
 
-class SpeakerCapture(PassiveExtras):
+class SpeakerCapture(PassiveExtras, ProductionExtras):
     FILE = "speaker.json"
 
     def __init__(self, rig: Rig):
@@ -153,6 +160,23 @@ class SpeakerCapture(PassiveExtras):
             raise ValueError(f"modes {bad} unknown; use any of {list(MODES)}")
         st = SpeakerState(speaker=speaker, drivers=self.drivers_of(speaker), distance_m=distance_m, points=points,
                           variant=variant, geometry=geometry, environment=environment or Environment(), modes=modes)
+        self._save(st)
+        return st
+
+    def update(self, geometry: dict | None = None, environment: dict | None = None, serial: str | None = None,
+               reference: bool | None = None, parts: dict | None = None) -> SpeakerState:
+        """Change a set's metadata without touching its captures (fields given are merged in)."""
+        st = self._require()
+        if geometry:
+            st.geometry = Geometry.model_validate({**st.geometry.model_dump(), **geometry})
+        if environment:
+            st.environment = Environment.model_validate({**st.environment.model_dump(), **environment})
+        if serial is not None:
+            st.serial = serial
+        if reference is not None:
+            st.reference = reference
+        if parts:
+            st.parts = {**st.parts, **parts}
         self._save(st)
         return st
 
@@ -374,6 +398,7 @@ class SpeakerCapture(PassiveExtras):
         if missing:
             notes.append(f"not recorded: {', '.join(missing)} (pass them to speaker_plan)")
         manifest = self._manifest(st, gate, t_ref_s, entries, nf_entries, zma, dist, freqs, notes)
+        manifest.update(self._export_production(st, out))
         mpath = out / "rewdio_session.json"
         mpath.write_text(json.dumps(manifest, indent=1))
         st.exported_to = str(out)

@@ -13,7 +13,8 @@ async def test_tools_drive_a_full_calibration(tmp_path, monkeypatch):
         assert {"autopilot_step", "confirm_user_action", "configure", "get_report", "measure",
                 "setup_status", "save_settings", "test_setup", "set_crossover", "speaker_plan", "speaker_step",
                 "speaker_confirm", "speaker_nearfield", "export_frd", "speaker_report",
-                "speaker_impedance", "speaker_distortion", "rig_selftest"} <= names
+                "speaker_impedance", "speaker_distortion", "rig_selftest",
+                "speaker_update", "speaker_transfer", "speaker_soak", "qa_run"} <= names
 
         def data(res):
             assert not res.is_error, res

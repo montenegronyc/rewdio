@@ -114,7 +114,7 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
 
     @mcp.tool()
     async def speaker_impedance(driver: str, rew_measurement_id: str | None = None, series_cap_uf: float | None = None,
-                                cap_in_circuit: bool = False, cap_corner_hz: float = 350.0) -> dict:
+                                cap_in_circuit: bool = False, cap_corner_hz: float = 350.0, label: str = "") -> dict:
         """Mounted impedance of one driver on an impedance jig, exported as zma/<speaker>_<driver>.zma
         (freq ohm phase). Rewdio tries REW's API impedance sweep; if REW refuses, the user takes it in REW's
         GUI and you pass that measurement's id. cap_in_circuit: the horn's series protection capacitor
@@ -127,7 +127,7 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
             if not ok:
                 return BUSY
             return _clean(await rt.speaker.impedance(driver, rew_measurement_id, series_cap_uf, cap_in_circuit,
-                                                     cap_corner_hz=cap_corner_hz))
+                                                     cap_corner_hz=cap_corner_hz, label=label))
 
 
     @mcp.tool()
@@ -168,3 +168,53 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
         from .analysis.frd import Gate
         rt = runtime()
         return _clean(rt.speaker.report(Gate(gate_ms=gate_ms), (band_lo_hz, band_hi_hz)))
+
+    @mcp.tool()
+    async def speaker_update(geometry: dict | None = None, environment: dict | None = None, serial: str | None = None,
+                             reference: bool | None = None, parts: dict | None = None) -> dict:
+        """Change the open capture set's metadata without touching its captures: geometry and environment fields
+        (merged in), the tower's serial, whether this set is THE reference every later tower is held to, and
+        measured part values from the LCR meter (e.g. {"L1_mH": 1.52, "C1_uF": 22.1}). Export again afterwards."""
+        st = runtime().speaker.update(geometry, environment, serial, reference, parts)
+        return {"ok": True, "serial": st.serial, "reference": st.reference, "parts": st.parts,
+                "not_recorded": st.geometry.missing() + st.environment.missing()}
+
+    @mcp.tool()
+    async def speaker_transfer(stage: str, label: str, driver: str, note: str | None = None) -> dict:
+        """Passive network transfer to one driver, as two sweeps through the SAME input and divider (or differential
+        probe): stage 'amp' with the input across the amplifier output, then stage 'tap' across that driver's
+        terminals. Their ratio is the network; the divider and mic calibration cancel. `driver` is the channel that
+        plays (the tower's amp channel); `label` names the branch (e.g. 'woofer', 'horn'). Keep the level low: the
+        input reads amplifier voltage."""
+        rt = runtime()
+        async with exclusive(rt) as ok:
+            if not ok:
+                return BUSY
+            return _clean(await rt.speaker.transfer(stage, label, driver, note))
+
+    @mcp.tool()
+    async def speaker_soak(driver: str, minutes: float = 60.0, spl_db: float = 90.0) -> dict:
+        """Burn-in check: pink noise through `driver` for `minutes` at about `spl_db` at the seat (never above 95;
+        the level comes from this channel's distortion capture, 3 dB under it to be safe). Runs in the background;
+        afterwards call speaker_impedance(driver, label='post_soak') and the QA run compares the two."""
+        return runtime().start_soak(driver, minutes, spl_db)
+
+    @mcp.tool()
+    async def qa_run(candidate_dir: str, reference_dir: str | None = None, pair_dir: str | None = None) -> dict:
+        """Production QA: compare an exported tower set (candidate_dir) with the reference tower's set (default: the
+        newest set marked reference under REWDIO_HOME/measurements) and, if given, its partner tower (pair_dir).
+        Checks: impedance, network transfer, polarity, on-axis FRD, pair match, distortion, a rub-and-buzz flag,
+        soak. Tolerances: qa_tolerances.json (packaged, overlaid by REWDIO_HOME/qa_tolerances.json). Writes
+        qa_report.json and a `qa` block into the candidate's manifest. Report every failed check with its worst
+        frequency and margin; rub and buzz is a flag, Lee still listens."""
+        from pathlib import Path
+
+        from .engine import qa
+        rt = runtime()
+        ref = reference_dir or qa.find_reference(rt.session.dir.parent)
+        if ref is None:
+            return {"ok": False, "message": "no reference set found: mark one with speaker_update(reference=true) "
+                                            "and export it, or pass reference_dir"}
+        rep = qa.run(Path(candidate_dir), Path(ref), Path(pair_dir) if pair_dir else None, rt.session.dir.parent)
+        rep.pop("tolerances", None)
+        return _clean(rep)

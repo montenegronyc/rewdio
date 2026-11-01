@@ -38,6 +38,7 @@ class Impedance(BaseModel):
     source: str  # "api" (Rewdio triggered it) or "imported" (taken in REW's GUI)
     series_cap_uf: float | None = None
     cap_in_circuit: bool | None = None
+    label: str = ""  # "" for the normal capture; "post_soak" after a soak
     protection_cap: dict | None = None  # suggested DSP-session guard cap, for drivers with a protection filter
     note: str | None = None
 
@@ -56,7 +57,7 @@ class Distortion(BaseModel):
 class PassiveExtras:
     async def impedance(self, driver: str, rew_measurement_id: str | None = None,
                         series_cap_uf: float | None = None, cap_in_circuit: bool = False, ppo: int = 48,
-                        cap_corner_hz: float = CAP_CORNER_HZ) -> dict:
+                        cap_corner_hz: float = CAP_CORNER_HZ, label: str = "") -> dict:
         """One driver's mounted impedance on an impedance jig. Rewdio triggers REW's impedance sweep; if this
         REW refuses that over its API, take it in REW's GUI and pass `rew_measurement_id` to import it.
         cap_in_circuit defaults to False: the passive design wants the driver alone."""
@@ -89,8 +90,8 @@ class PassiveExtras:
                        "phase_deg": [float(x) for x in phase]})
         guarded = any(f.protect for f in self.s.config.channel(driver).crossover or [])
         cap = protection_cap(spec.freqs, ohm, cap_corner_hz) if guarded else None
-        st.impedance = [z for z in st.impedance if z.driver != driver]
-        st.impedance.append(Impedance(driver=driver, id=rew_measurement_id, source=source,
+        st.impedance = [z for z in st.impedance if not (z.driver == driver and z.label == label)]
+        st.impedance.append(Impedance(driver=driver, id=rew_measurement_id, source=source, label=label,
                                       series_cap_uf=series_cap_uf if series_cap_uf is not None
                                       else st.geometry.series_cap_uf, cap_in_circuit=cap_in_circuit,
                                       protection_cap=cap))
@@ -166,7 +167,7 @@ class PassiveExtras:
         entries = []
         for z in st.impedance:
             d = json.loads((self.s.dir / "data" / f"{z.id}.zma.json").read_text())
-            rel = Path("zma") / f"{st.speaker}_{z.driver}.zma"
+            rel = Path("zma") / f"{st.speaker}_{z.driver}{'_' + z.label if z.label else ''}.zma"
             cap = (f"series cap {z.series_cap_uf:g} uF {'IN' if z.cap_in_circuit else 'NOT in'} circuit"
                    if z.series_cap_uf is not None else f"series cap {'in' if z.cap_in_circuit else 'not in'} circuit "
                                                        "(value not recorded)")
@@ -180,7 +181,8 @@ class PassiveExtras:
             lines += [f"{f:.6f}\t{o:.4f}\t{p:.4f}" for f, o, p in zip(d["freqs"], d["ohm"], d["phase_deg"])]
             (out / rel).parent.mkdir(parents=True, exist_ok=True)
             (out / rel).write_text("\n".join(lines) + "\n")
-            entries.append({"driver": z.driver, "file": rel.as_posix(), "measurement_id": z.id, "source": z.source,
+            entries.append({"driver": z.driver, "label": z.label, "file": rel.as_posix(), "measurement_id": z.id,
+                            "source": z.source,
                             "series_cap_uf": z.series_cap_uf, "cap_in_circuit": z.cap_in_circuit,
                             "protection_cap": z.protection_cap})
         return entries

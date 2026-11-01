@@ -1,0 +1,10 @@
+{
+  "impedance": {"band_hz": [20, 20000], "max_dev_pct": 5.0, "min_ohm": 4.0},
+  "transfer": {"band_hz": [200, 5000], "max_db": 0.3, "max_deg": 3.0, "passband_window_db": 15.0},
+  "polarity": {"band_hz": [500, 2000]},
+  "frd": {"band_hz": [300, 10000], "max_db": 1.0, "smoothing_oct": 6},
+  "pair": {"band_hz": [300, 10000], "max_db": 0.5, "phase_band_hz": [500, 2000], "max_deg": 10.0, "smoothing_oct": 6},
+  "distortion": {"max_over_ref_db": 3.0},
+  "rub_buzz": {"orders": [5, 6, 7, 8, 9], "margin_db": 6.0, "floor_pct": 0.1},
+  "soak": {"band_hz": [20, 20000], "max_change_pct": 2.0}
+}
