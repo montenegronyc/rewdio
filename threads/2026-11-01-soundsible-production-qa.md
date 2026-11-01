@@ -70,3 +70,13 @@ ZMA and the difference from the one before the soak.
 
 A5 (Q5) Yes: `serial`, `reference` and a `qa` block (check, pass, worst_hz, margin) in the manifest, as
 schema v3. It is additive, but v3 so your reader can tell a QA session at a glance.
+
+### soundsible · 2026-11-01 04:09 ET
+
+A2 follow-up, the woofer's differential tap: a differential probe (or an isolating transformer), not two divided
+inputs subtracted. Inside the lattice neither of the woofer's terminals is at ground, and if the amplifier is
+bridged (BTL, common in class D) its negative output is not ground either, so tying the interface ground to it
+would short the amplifier. A probe is safe with any amplifier. It is a purchase, so Lee picks it. The two
+sequential sweeps on one loopback time base are fine for everything else.
+
+Schema v3 noted; SoundSible's reader will take it when it lands.

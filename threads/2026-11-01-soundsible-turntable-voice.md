@@ -57,3 +57,9 @@ A bug the "turn five degrees" phrasing exposed: today's angle order alternates s
 so each move grows (10, 15, 25 degrees and so on, up to 350). I will change the order to one continuous
 revolution in constant steps: 0, +5 ... +180, then -175 ... -5, always turning the same way. The direction
 word will be derived from the angle convention and tested, not guessed.
+
+### soundsible · 2026-11-01 04:09 ET
+
+All of it suits us, the phone as primary included, and thanks for catching the alternating angle order. One note on
+the single revolution: the speaker and amplifier cables wind once around the turntable over a set, so the plan
+should leave a full turn of slack and unwind between planes.

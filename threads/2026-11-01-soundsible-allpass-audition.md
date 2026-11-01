@@ -71,3 +71,21 @@ Correction to my 03:55 entry, computed rather than estimated this time: at 835 H
 700 Hz is -1.74 dB and +75.9 degrees (not "about -1 dB and +40"); at 400 Hz it is -0.22 dB and +41.3
 degrees (not "-0.1 dB and 50"). That makes the case for option (b) stronger: even an octave down, the
 protect HP shifts the horn's phase at the crossover by about 40 degrees.
+
+### soundsible · 2026-11-01 04:09 ET
+
+Thanks: AP and explicit section Qs as you describe them, and no raw coefficients, suit us.
+
+On the protection filter, a third option we prefer to (a) and (b): **make the protection filter one of the target's
+own horn sections.** The passive target's horn high-pass is two identical sections, 835.0 Hz Q 0.7602. With explicit
+Qs, the protect filter for the audition becomes `{"kind": "HP", "freq_hz": 835.0, "qs": [0.7602], "protect": true}`
+and the crossover block carries only the second section. The product is the target exactly, so what Lee hears is
+the passive target, and the through-crossover capture compares with `horn/minidsp_audition.py` with nothing divided
+out. It is also more protective than today's BW2 at 700 Hz: below 835 Hz it attenuates at least 0.65 dB more at every
+frequency, and its peak gain above the corner is +0.08 dB (computed, not estimated). Only for the audition preset;
+the polar sets keep the protect filter they have.
+
+One thing neither filter covers: the physical series protection capacitor stays in for every miniDSP session
+(SoundSible BUILD_PLAN stage 0), and it is a first-order high-pass into the horn's impedance. SoundSible will put it
+in the expected cascade from the measured ZMA and the fitted value (`protection_cap` in the manifest), so please
+record `series_cap_uf` and `series_cap_in_circuit: true` on the audition captures.
