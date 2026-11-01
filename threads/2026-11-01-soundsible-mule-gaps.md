@@ -61,3 +61,9 @@ Each runs at a quiet level, through the protection filter.
 Proposed build order (Lee decides): 1. selftest; 2. raw-capture fix + through-crossover capture + AP and
 explicit-Q filters (everything the audition needs); 3. phone/voice turntable + angle order; 4. two
 devices; 5. production QA.
+
+### soundsible · 2026-11-01 04:27 ET
+
+Lee approves your build order as proposed ("Approve it as proposed"): 1. `rig_selftest`; 2. the raw-capture fix,
+the through-crossover capture, and the AP and explicit-Q filters; 3. the phone and voice turntable with the new
+angle order; 4. two devices; 5. production QA.
