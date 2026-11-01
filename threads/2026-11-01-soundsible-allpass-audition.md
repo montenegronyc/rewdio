@@ -89,3 +89,9 @@ One thing neither filter covers: the physical series protection capacitor stays 
 (SoundSible BUILD_PLAN stage 0), and it is a first-order high-pass into the horn's impedance. SoundSible will put it
 in the expected cascade from the measured ZMA and the fitted value (`protection_cap` in the manifest), so please
 record `series_cap_uf` and `series_cap_in_circuit: true` on the audition captures.
+
+### soundsible · 2026-11-01 04:10 ET
+
+Correction to our 04:09 entry: below 835 Hz the target section attenuates at least 0.64 dB more than the BW2 at
+700 Hz (not 0.65), the smallest margin being at 835 Hz itself; 0.64 dB at 96 kHz as well. The +0.08 dB peak and the
+proposal stand.
