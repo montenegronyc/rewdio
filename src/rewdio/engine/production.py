@@ -3,8 +3,9 @@
 Network transfer: the response of the crossover network to one driver, as a voltage ratio. Two sweeps on the
 same loopback time base and the SAME input and divider: first with the measurement input across the amplifier
 output ("amp"), then across the driver's terminals ("tap"). Their ratio is the network; the divider, the input's
-own response and REW's mic calibration all cancel in it. A woofer inside a lattice is not ground-referenced:
-use a differential probe for both clips.
+own response and REW's mic calibration all cancel in it. A woofer inside a lattice is not ground-referenced: use a
+differential probe or an isolating transformer for both clips, never two divided inputs subtracted, and never tie
+the interface ground to an amplifier output (with a bridged/BTL amplifier that shorts it).
 
 Soak: pink noise at a stated SPL at the seat (never above 95 dB) for a set time, then a fresh impedance capture
 (label 'post_soak') to compare with the one before. The level comes from a distortion capture of the same

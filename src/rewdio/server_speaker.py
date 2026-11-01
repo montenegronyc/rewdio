@@ -204,7 +204,9 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
         probe): stage 'amp' with the input across the amplifier output, then stage 'tap' across that driver's
         terminals. Their ratio is the network; the divider and mic calibration cancel. `driver` is the channel that
         plays (the tower's amp channel); `label` names the branch (e.g. 'woofer', 'horn'). Keep the level low: the
-        input reads amplifier voltage."""
+        input reads amplifier voltage. For a terminal that is not at ground (the woofer inside the lattice, or any
+        output of a bridged/BTL amplifier) use a differential probe or isolating transformer: never connect the
+        interface ground to an amplifier output, it can short the amplifier."""
         rt = runtime()
         async with exclusive(rt) as ok:
             if not ok:

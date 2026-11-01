@@ -81,7 +81,8 @@ def prompt(points: list[Point], index: int, speaker: str, distance_m: float, mic
         mic = f" at {mic_height_m:g} m above the ground" if mic_height_m is not None else ", level with that point"
         text = (f"Set up {speaker}: the turntable axis under the top-front centre of the woofer box, the speaker "
                 f"facing the mic squarely (that is 0 degrees), the mic {distance_m:g} m away straight ahead{mic}, "
-                "pointing at the speaker. Do not move the mic or the turntable until the plane is done.")
+                "pointing at the speaker. Leave a full turn of slack in the speaker and amplifier cables: a plane is "
+                "one whole revolution. Do not move the mic or the turntable until the plane is done.")
         return {"plane": p.plane, "target": 0.0, "move_deg": 0.0, "text": text,
                 "speech": f"{plane_word}, zero. Face the speaker at the mic. Tap ready."}
     new_plane = prev.plane != p.plane
@@ -90,7 +91,8 @@ def prompt(points: list[Point], index: int, speaker: str, distance_m: float, mic
     way = "clockwise" if m > 0 else "anticlockwise"
     turn = f"turn {abs(m):g} degrees {way} as seen from above" if m else "no turn"
     if new_plane:
-        text = (f"Vertical plane: lay {speaker} on its RIGHT side on the turntable, with the same point (top-front "
+        text = (f"Vertical plane: first unwind the cables (the last plane was a full turn). Lay {speaker} on its "
+                "RIGHT side on the turntable, with the same point (top-front "
                 "centre of the woofer box) over the turntable axis, facing the mic squarely (vertical 0). Raise or "
                 "lower the mic so it is level with that point again, same distance, and support the horn. Then "
                 f"{turn}, to vertical {p.angle:+g}.")

@@ -84,8 +84,10 @@ class ExportMixin:
             h = gated_response(ir, fs, freqs, t_ref_s, gate, t0_s=t0) * 10 ** ((ref_level - levels.get(c.id, ref_level))
                                                                                 / 20)
             band = stable_band(ir, fs, freqs, t_ref_s, gate, t0_s=t0) if check else None
-            prot = self._protection(c.id, c.driver) if c.mode != "sum" else []
-            prot_note = "none" if c.mode != "sum" else "included (a sum cannot be split per driver)"
+            # only raw captures have the protection filter divided out: xo and sum are exported exactly as played,
+            # so an audition whose protect filter is one of the target's own sections compares with nothing removed
+            prot = self._protection(c.id, c.driver) if c.mode == "raw" else []
+            prot_note = "none" if c.mode == "raw" else "included: exported exactly as it played"
             if c.mode == "raw":  # the driver alone: take out everything the DSP output added
                 o = self._snapshot(c.id, c.driver)
                 o.crossover = None  # the protection filter is handled below, with its floor
@@ -126,7 +128,8 @@ class ExportMixin:
             band_txt = (f"gate check: stable within 0.5 dB when the gate end moves +1/+2 ms from "
                         f"{band[0]:.0f} to {band[1]:.0f} Hz" if band else "gate check: no stable band found")
             what = {"raw": "raw driver capture (DSP output state divided out)",
-                    "xo": "driver through its output as configured (crossover, gain, delay, polarity, PEQ)",
+                    "xo": "driver through its output as configured (crossover incl. protection, gain, delay, "
+                          "polarity, PEQ)",
                     "sum": "all drivers together through their outputs"}[c.mode]
             hdr = [f"Rewdio {what}: {st.speaker} {c.driver} {c.plane} {c.angle:g} deg ({st.variant})",
                    f"REW measurement {c.id}; {self.s.config.timing_mode.value} time base; common delay removed "

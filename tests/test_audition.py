@@ -71,13 +71,24 @@ async def test_through_crossover_and_summed_captures(sim_runtime, tmp_path):
     lw = m["drivers"][0]
     assert all(e["mode"] == "raw" for e in lw["files"]) and lw["files_xo"][0]["file"].startswith("frd/LW_xo/")
     assert m["sum_files"][0]["file"].startswith("frd/sum/") and m["capture_modes"] == ["raw", "xo", "sum"]
-    # xo = raw x the configured crossover (protection divided out of both)
+    # xo = raw x the whole configured crossover: raw has its protection divided out, xo is as it played
     f, raw = read_frd(tmp_path / "frd" / "LH" / "L_LH hor 0.frd")
     _, xo = read_frd(tmp_path / "frd" / "LH_xo" / "L_LH_xo hor 0.frd")
-    xo_filters = [x for x in rt.session.config.channel("LH").crossover if not x.protect]
+    xo_filters = rt.session.config.channel("LH").crossover
     pred = cascade_response(xover_sections(xo_filters, FS), f, FS)
     band = (f > 1500) & (f < 5000)
     err = (xo / raw)[band] / pred[band]
     assert np.max(np.abs(20 * np.log10(np.abs(err)))) < 0.5 and np.max(np.abs(np.angle(err))) < np.deg2rad(5)
     rep = rt.speaker.report()  # the spinorama still uses the raw captures only
     assert "curves_db" in rep
+
+
+def test_soundsibles_audition_protect_section_is_the_target_exactly():
+    """Protection as one of the target's own horn sections: the product is the passive target itself."""
+    protect = XoverFilter(kind="HP", freq_hz=835.0, qs=[0.7602], protect=True)
+    rest = XoverFilter(kind="HP", freq_hz=835.0, qs=[0.7602])
+    f = np.geomspace(100, 20000, 200)
+    got = cascade_response(xover_sections([rest, protect], FS), f, FS)
+    want = cascade_response([design("HP", 835.0, FS, q=0.7602)] * 2, f, FS)
+    assert np.allclose(got, want)
+    assert [x.protect for x in [rest, protect]] == [False, True]  # raw captures keep only the protect section
