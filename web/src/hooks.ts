@@ -36,6 +36,51 @@ export function useWakeLock(active: boolean) {
   }, [active]);
 }
 
+// Spoken turntable prompts with the phone's own voice. Browsers only speak after a tap, so the card has a
+// "Voice on" switch; the choice is kept on this phone. British English female voice when the phone has one.
+const VOICE_KEY = "rewdio-voice";
+const FEMALE_GB = ["Serena", "Kate", "Stephanie", "Martha", "Female"];
+
+export function voiceEnabled(): boolean {
+  try { return localStorage.getItem(VOICE_KEY) === "on"; } catch { return false; }
+}
+
+export function setVoiceEnabled(on: boolean) {
+  try { localStorage.setItem(VOICE_KEY, on ? "on" : "off"); } catch { /* private mode: this page only */ }
+  if (on) speak("Voice on.");
+}
+
+function bestVoice(): SpeechSynthesisVoice | undefined {
+  const all = window.speechSynthesis?.getVoices() ?? [];
+  const gb = all.filter((v) => v.lang.replace("_", "-").toLowerCase() === "en-gb");
+  for (const q of ["Premium", "Enhanced", ""]) {
+    const v = gb.find((x) => FEMALE_GB.some((n) => x.name.includes(n)) && x.name.includes(q));
+    if (v) return v;
+  }
+  return gb[0];
+}
+
+export function speak(text: string) {
+  const s = window.speechSynthesis;
+  if (!s || !text) return;
+  s.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  const v = bestVoice();
+  if (v) u.voice = v;
+  u.lang = "en-GB";
+  u.rate = 1.0;
+  s.speak(u);
+}
+
+// Say `text` whenever `id` changes (a new prompt, a new result), if the voice is on.
+export function useSpeakOnChange(id: string | null | undefined, text: string | null | undefined, on: boolean) {
+  const prev = useRef(id);
+  useEffect(() => {
+    if (on && id && id !== prev.current && text) speak(text);
+    prev.current = id;
+  }, [id, text, on]);
+}
+
 // A short buzz when there's somewhere new to go (Android; iOS ignores it).
 export function useBuzzOnChange(value: string | null | undefined) {
   const prev = useRef(value);
