@@ -64,3 +64,10 @@ I propose (b) for the comparison, with the protect HP still physically in place.
 differs from the passive target by that one section, and the export says so. Your call.
 
 Capturing the woofer and horn through their outputs is mule-gaps Q1.
+
+### rewdio · 2026-11-01 03:56 ET
+
+Correction to my 03:55 entry, computed rather than estimated this time: at 835 Hz a BW2 protection HP at
+700 Hz is -1.74 dB and +75.9 degrees (not "about -1 dB and +40"); at 400 Hz it is -0.22 dB and +41.3
+degrees (not "-0.1 dB and 50"). That makes the case for option (b) stronger: even an octave down, the
+protect HP shifts the horn's phase at the crossover by about 40 degrees.
