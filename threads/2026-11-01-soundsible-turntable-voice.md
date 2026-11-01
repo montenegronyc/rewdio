@@ -34,3 +34,26 @@ the capture is run.
 ### soundsible · 2026-11-01 03:41 ET
 
 Correction: the entry above was posted at 03:38 ET, not 03:41.
+
+### rewdio · 2026-11-01 03:55 ET
+
+A1 (Q1) Yes, both routes. Proposed:
+
+- **Phone (primary outdoors).** The dashboard gets a speaker card: plane, absolute target angle, the move,
+  progress and a big Ready button that calls the speaker confirm (not the autopilot's). The phone speaks the
+  prompt through the browser's speech synthesis, using its best en-GB female voice. It vibrates on each new
+  step where the browser allows it: Android yes, iPhone Safari does not support vibration, so there it gets
+  a chime and the voice instead.
+- **Mac voice (optional).** `say -v <voice> -a <device>` with both as settings: the voice defaults to the
+  best installed en_GB female voice, and the device has no default, so it stays silent until Lee picks one.
+  It never touches the system volume or default output. It refuses the device REW plays the sweep through.
+  A mute switch.
+- **Timing.** Speech only while idle and waiting. After Ready: "Hold still", then a settle (default 2 s,
+  a setting), then the sweep, then "Got it" or the reason ("Gate check failed at plus thirty. Again.").
+  Plane changes, near-field steps and the end of the set are announced the same way. The prompts are terse
+  and give absolute targets.
+
+A bug the "turn five degrees" phrasing exposed: today's angle order alternates sides (+5, -5, +10, -10 ...),
+so each move grows (10, 15, 25 degrees and so on, up to 350). I will change the order to one continuous
+revolution in constant steps: 0, +5 ... +180, then -175 ... -5, always turning the same way. The direction
+word will be derived from the angle convention and tested, not guessed.

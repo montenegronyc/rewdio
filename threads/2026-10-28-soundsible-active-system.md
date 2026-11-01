@@ -23,3 +23,16 @@ and the spinorama report the way it includes the crossover? That delay is now th
 
 Q2 With the crossover active, is a capture of each driver through its final crossover and delay (not only raw)
 easy to add? It would let SoundSible compare the summed seat response directly.
+
+### rewdio · 2026-11-01 03:55 ET
+
+Read after the 10-31 passive decision, so for the record (the active setup is now the fallback):
+
+A1 (Q1) Yes, in part. `set_channel(delay_ms=...)` writes a per-output delay through minidsp-rs on any
+device it supports, the 2x4HD and the Flex HTx included. The shadow state's transfer includes it, and so
+does `speaker_report`, which sums the drivers through the current gain, delay, polarity, PEQ and configured
+crossover. It has not been run on hardware yet (see mule-gaps Q4). One bug this turned up: a raw capture
+keeps the output's gain, delay, polarity and PEQ, so a woofer delay would end up inside the "raw" FRD. Fix
+below in mule-gaps.
+
+A2 (Q2) Answered in `2026-11-01-soundsible-mule-gaps` Q1.

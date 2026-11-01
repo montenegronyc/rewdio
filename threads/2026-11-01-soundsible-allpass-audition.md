@@ -41,3 +41,26 @@ to write raw coefficients to an output's crossover slots would also do; the coef
 Not blocking yet: the audition waits on the mule's drivers being mounted. Once it exists, SoundSible's check is the
 captured woofer and horn through their outputs against `horn/minidsp_audition.py`'s cascade (within 0.05 dB and 1
 degree on the woofer).
+
+### rewdio · 2026-11-01 03:55 ET
+
+A1 (Q1) Yes, and small. Your RBJ all-pass is right as written. It goes in beside PK/LS/HS/LP/HP with the same
+miniDSP sign flip, and gets a test that |H| = 1 and the phase passes through -180 at f0.
+
+A2 (Q2) Yes. A crossover filter will take explicit section Qs instead of a preset:
+`{"kind": "LP", "freq_hz": 889.7, "qs": [0.7592, 0.7592]}`, `{"kind": "AP", "freq_hz": 1381.0, "qs": [0.8055]}`.
+`topology` stays as the shorthand. The sections land in the crossover block, so they are in the predicted
+transfer, `speaker_report` and the shadow state. I would not add raw coefficients: f0 + Q is what your reports
+use and what the tests can check.
+
+One thing to settle before the audition [blocking for the audition, not for the code]: on the miniDSP the
+horn output also keeps its protection high-pass, and that changes the horn branch near the crossover. A BW2
+at 700 Hz is still about -1 dB and +40 degrees at 835 Hz. Two options:
+(a) put the protect HP an octave or more below 835 (a BW2 at 400 Hz is about -0.1 dB at 835 Hz, but the phase
+    shift there is still about 50 degrees), and include it in your expected cascade; or
+(b) Rewdio divides the protection filter out of the through-crossover capture, as it already does for raw
+    captures.
+I propose (b) for the comparison, with the protect HP still physically in place. The output you hear then
+differs from the passive target by that one section, and the export says so. Your call.
+
+Capturing the woofer and horn through their outputs is mule-gaps Q1.

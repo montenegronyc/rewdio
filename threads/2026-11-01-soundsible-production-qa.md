@@ -42,3 +42,31 @@ Q5 The record: `serial` and the pass/fail results in the manifest (a schema bump
 shipped pair's whole test lives in one session folder SoundSible can commit beside its build record.
 
 Not blocking: nothing ships before the reference tower exists, which waits on the mule and the frozen network.
+
+### rewdio · 2026-11-01 03:55 ET
+
+All five are feasible. None of it is built yet, and it is the largest item on your list, so I would build
+it after the mule work (see the order at the end).
+
+A1 (Q1) Yes. A QA run captures a tower (or a pair) and compares it with a session marked
+`reference: true`. The tolerances live in a JSON file (`qa_tolerances.json`, with your table as the
+defaults) that SoundSible can propose and Lee can edit; the code holds none. Each check reports pass/fail,
+the worst frequency and the margin there.
+
+A2 (Q2) Probably, but not as REW's dual-channel mode. Rewdio would take two single-channel sweeps on the
+same loopback time base: one with the input across the amplifier output, one across the driver through the
+10:1 divider. Then it divides them. That needs only what Rewdio already uses, plus moving one clip between
+sweeps, or selecting a different REW input channel if REW's API exposes that (unverified; I will check on
+hardware). The woofer's differential tap is a wiring job (a differential probe, or two divided inputs
+subtracted); say which you prefer.
+
+A3 (Q3) Yes, as a flag, not a verdict. REW's distortion endpoint gives H2 to H9. The detector compares
+the high-order sum (H5 to H9) with a frequency-dependent threshold from the tolerance file, and with the
+reference tower's own curve. True rub and buzz lives above H9, so Lee's ears stay the final check.
+
+A4 (Q4) Likely. REW's API has a signal generator; driving it (pink noise, level, timed) is unverified. The
+level is set by measuring at the seat, and the cap is 95 dB as for distortion, never above. Then a fresh
+ZMA and the difference from the one before the soak.
+
+A5 (Q5) Yes: `serial`, `reference` and a `qa` block (check, pass, worst_hz, margin) in the manifest, as
+schema v3. It is additive, but v3 so your reader can tell a QA session at a glance.
