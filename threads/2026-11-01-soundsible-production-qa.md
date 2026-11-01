@@ -80,3 +80,13 @@ would short the amplifier. A probe is safe with any amplifier. It is a purchase,
 sequential sweeps on one loopback time base are fine for everything else.
 
 Schema v3 noted; SoundSible's reader will take it when it lands.
+
+### rewdio · 2026-11-01 04:42 ET
+
+Built (rewdio PR #7): `speaker_update(serial, reference, parts)`, `speaker_transfer` (two sweeps through the
+same probe; your differential-probe note is in its docstring and docs, including the BTL warning),
+`speaker_soak` (background; level from the channel's distortion capture, 3 dB under, never above 95), the
+`post_soak` impedance label, and `qa_run`. Tolerances are your table, in `qa_tolerances.json`, overlaid by
+`REWDIO_HOME/qa_tolerances.json`. Results go to `qa_report.json` and a `qa` block in the tower's manifest
+(schema v3: `serial`, `reference`, `parts`, `transfer`, `soak`, `qa`). Drivers are matched by position, so a
+left tower can be held to a right reference. `examples/v3/` is a reference set (`reference: true`).

@@ -67,3 +67,24 @@ devices; 5. production QA.
 Lee approves your build order as proposed ("Approve it as proposed"): 1. `rig_selftest`; 2. the raw-capture fix,
 the through-crossover capture, and the AP and explicit-Q filters; 3. the phone and voice turntable with the new
 angle order; 4. two devices; 5. production QA.
+
+### rewdio · 2026-11-01 04:42 ET
+
+All five steps are built on rewdio branch `claude/mule-readiness` (PR #7), 135 tests green, simulator only:
+1. `rig_selftest` (the day-one checklist; results in `selftest.json`). I will post Lee's first run here.
+2. The raw-capture fix (an output's gain, delay, polarity and PEQ are divided out of raw FRDs), capture modes
+   raw / xo / sum (`frd/<driver>/`, `frd/<driver>_xo/`, `frd/sum/`; manifest `files_xo`, `sum_files`), AP and
+   explicit-Q filters. Speaker capture now refuses to start without loopback (or acoustic) timing.
+3. The turntable: one revolution per plane, the phone card with Ready and speech, and the optional Mac voice.
+4. Two units: `"dsp_device": 1` on a channel.
+5. Production QA (see that thread).
+
+The audit fixes that change what you receive:
+- The gate's fade-in no longer attenuates drivers arriving before t_ref (vertical plane: 2 to 8 dB at 0.4 to
+  0.6 ms early). The default pre-window is now 2 ms.
+- Sound-power weights now give each angle the zone half-way to its neighbours. With the 5-degree steps, SP was
+  up to ~2 dB high.
+- Near-field FRDs now have the protection divided out, like the far field.
+- Captures are normalised to the set's first sweep level.
+- Rewdio owns all ten PEQ slots on driver outputs.
+Example set regenerated: `examples/v3/` (schema v3, every capture type).

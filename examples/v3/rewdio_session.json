@@ -1,0 +1,748 @@
+{
+ "schema": "rewdio.speaker-session/3",
+ "created_et": "2026-11-01T04:41:57-05:00",
+ "speaker": "L",
+ "variant": "offset10_riser40",
+ "geometry": {
+  "frame": "x forward, y to the speaker's left, z up; origin at the top of the woofer box on the front face, centre; metres; speaker upright at 0 degrees",
+  "pivot_xyz": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "mic_xyz": [
+   1.778,
+   0.0,
+   0.0
+  ],
+  "mic_given_as": {
+   "mic_distance_m": 1.778,
+   "mic_height_m": 1.0,
+   "origin_height_m": 1.0
+  },
+  "mic_distance_m": 1.778,
+  "riser_h": 0.4,
+  "origin_height_m": 1.0,
+  "mic_height_m": 1.0,
+  "horn_offset_m": 0.1,
+  "horn_stem_lift_m": 0.04,
+  "horn_id": "9756570e77f12f08",
+  "horn_stl": null,
+  "series_cap_uf": 22.0,
+  "series_cap_in_circuit": true,
+  "ground_bounce_after_direct_ms": 2.644,
+  "angle_convention": {
+   "hor": "rotation about the vertical axis through the pivot; positive = turntable turned clockwise seen from above, so the mic sees more of the speaker's own left side",
+   "ver": "speaker laid on its right side on the same pivot; positive = turntable turned clockwise seen from above, so the mic sees more of the speaker's top (above the axis)"
+  },
+  "driver_offsets_in_phase": true
+ },
+ "environment": {
+  "temperature_c": 14.0,
+  "speed_of_sound_m_s": 339.68,
+  "indoor": false,
+  "site": "backyard",
+  "started_et": "2026-11-01T10:30:00-05:00",
+  "soundsible_commit": ""
+ },
+ "timing": {
+  "reference": "loopback",
+  "common_delay_removed_ms": 5.5833
+ },
+ "gate": {
+  "pre_ms": 2.0,
+  "gate_ms": 5.0,
+  "taper_ms": 0.5,
+  "valid_from_hz": 200.0,
+  "gate_check": {
+   "extend_ms": [
+    1.0,
+    2.0
+   ],
+   "tolerance_db": 0.5,
+   "smoothing": "1/12 oct",
+   "per_file": "drivers[].files[].valid_band_hz"
+  }
+ },
+ "band_hz": [
+  10.0,
+  5664.612008390828
+ ],
+ "drivers": [
+  {
+   "role": "LW",
+   "dsp_output": 0,
+   "crossover_configured": [
+    {
+     "kind": "LP",
+     "topology": "LR4",
+     "qs": null,
+     "freq_hz": 1500.0,
+     "protect": false
+    }
+   ],
+   "files": [
+    {
+     "driver": "LW",
+     "mode": "raw",
+     "plane": "hor",
+     "angle": 0.0,
+     "file": "frd/LW/L_LW hor 0.frd",
+     "measurement_id": "6d67ccd5-dd5d-43c5-83d8-c9761296fbe8",
+     "valid_band_hz": [
+      1076.3474115247545,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "raw",
+     "plane": "hor",
+     "angle": 10.0,
+     "file": "frd/LW/L_LW hor 10.frd",
+     "measurement_id": "1964a1f4-9426-4ca9-aaaa-8989b389d4a6",
+     "valid_band_hz": [
+      1076.3474115247545,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "raw",
+     "plane": "hor",
+     "angle": 30.0,
+     "file": "frd/LW/L_LW hor 30.frd",
+     "measurement_id": "ebf0563a-b042-49ee-96f1-5133bd83e0cf",
+     "valid_band_hz": [
+      1001.3713909809752,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "raw",
+     "plane": "hor",
+     "angle": -10.0,
+     "file": "frd/LW/L_LW hor -10.frd",
+     "measurement_id": "b1acd4e4-6b48-4241-9c84-4a4510af3bdd",
+     "valid_band_hz": [
+      1001.3713909809752,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "raw",
+     "plane": "hor",
+     "angle": -30.0,
+     "file": "frd/LW/L_LW hor -30.frd",
+     "measurement_id": "3e02e478-db14-46df-94c6-f50c0c5b6828",
+     "valid_band_hz": [
+      1076.3474115247545,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "raw",
+     "plane": "ver",
+     "angle": 10.0,
+     "file": "frd/LW/L_LW ver 10.frd",
+     "measurement_id": "ab0498be-5d1d-4e26-b376-7c74697c902b",
+     "valid_band_hz": [
+      1092.0032451345185,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "raw",
+     "plane": "ver",
+     "angle": -10.0,
+     "file": "frd/LW/L_LW ver -10.frd",
+     "measurement_id": "556e976c-4665-4c61-b6e8-cf073ed6cfda",
+     "valid_band_hz": [
+      739.4257259982545,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    }
+   ],
+   "files_xo": [
+    {
+     "driver": "LW",
+     "mode": "xo",
+     "plane": "hor",
+     "angle": 0.0,
+     "file": "frd/LW_xo/L_LW_xo hor 0.frd",
+     "measurement_id": "953976b8-cf64-4083-830b-d65e01fc2782",
+     "valid_band_hz": [
+      1045.7058900743036,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "xo",
+     "plane": "hor",
+     "angle": 10.0,
+     "file": "frd/LW_xo/L_LW_xo hor 10.frd",
+     "measurement_id": "1e92334f-4b5f-44a1-b1c0-9c6f7b49c80c",
+     "valid_band_hz": [
+      1045.7058900743036,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "xo",
+     "plane": "hor",
+     "angle": 30.0,
+     "file": "frd/LW_xo/L_LW_xo hor 30.frd",
+     "measurement_id": "dcd9a495-40b3-4949-82c6-c0f3b0b9cbe9",
+     "valid_band_hz": [
+      1060.916032491576,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "xo",
+     "plane": "hor",
+     "angle": -10.0,
+     "file": "frd/LW_xo/L_LW_xo hor -10.frd",
+     "measurement_id": "ac867b5a-c2b6-463b-9713-247e1fc83a40",
+     "valid_band_hz": [
+      1045.7058900743036,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "xo",
+     "plane": "hor",
+     "angle": -30.0,
+     "file": "frd/LW_xo/L_LW_xo hor -30.frd",
+     "measurement_id": "36777358-9028-46da-9a29-0e837d41690c",
+     "valid_band_hz": [
+      1060.916032491576,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "xo",
+     "plane": "ver",
+     "angle": 10.0,
+     "file": "frd/LW_xo/L_LW_xo ver 10.frd",
+     "measurement_id": "995bcd58-54f5-48a3-8888-d9b4ac0c736e",
+     "valid_band_hz": [
+      1060.916032491576,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LW",
+     "mode": "xo",
+     "plane": "ver",
+     "angle": -10.0,
+     "file": "frd/LW_xo/L_LW_xo ver -10.frd",
+     "measurement_id": "b43a560e-ce22-4263-a400-6c3c893f6405",
+     "valid_band_hz": [
+      772.1628997123338,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    }
+   ],
+   "nearfield": [
+    {
+     "driver": "LW",
+     "label": "nf",
+     "file": "frd/LW/L_LW nf.frd",
+     "measurement_id": "414ba4c7-b626-42d6-ab7c-865125062b62"
+    }
+   ],
+   "zma": [
+    {
+     "driver": "LW",
+     "label": "",
+     "file": "zma/L_LW.zma",
+     "measurement_id": "1c6d5080-626d-4efe-8787-ec53857dff84",
+     "source": "api",
+     "series_cap_uf": 22.0,
+     "cap_in_circuit": false,
+     "protection_cap": null
+    }
+   ],
+   "distortion": []
+  },
+  {
+   "role": "LH",
+   "dsp_output": 1,
+   "crossover_configured": [
+    {
+     "kind": "HP",
+     "topology": "LR4",
+     "qs": null,
+     "freq_hz": 1500.0,
+     "protect": false
+    },
+    {
+     "kind": "HP",
+     "topology": "BW2",
+     "qs": null,
+     "freq_hz": 700.0,
+     "protect": true
+    }
+   ],
+   "files": [
+    {
+     "driver": "LH",
+     "mode": "raw",
+     "plane": "hor",
+     "angle": 0.0,
+     "file": "frd/LH/L_LH hor 0.frd",
+     "measurement_id": "3583aaa8-e399-4465-b578-12002c88afe5",
+     "valid_band_hz": [
+      433.36177501980563,
+      5664.612008390828
+     ],
+     "protection_removed": [
+      {
+       "kind": "HP",
+       "topology": "BW2",
+       "qs": null,
+       "freq_hz": 700.0,
+       "protect": true
+      }
+     ]
+    },
+    {
+     "driver": "LH",
+     "mode": "raw",
+     "plane": "hor",
+     "angle": 10.0,
+     "file": "frd/LH/L_LH hor 10.frd",
+     "measurement_id": "0ae043f2-f016-492f-bf70-bab137b616ea",
+     "valid_band_hz": [
+      433.36177501980563,
+      5664.612008390828
+     ],
+     "protection_removed": [
+      {
+       "kind": "HP",
+       "topology": "BW2",
+       "qs": null,
+       "freq_hz": 700.0,
+       "protect": true
+      }
+     ]
+    },
+    {
+     "driver": "LH",
+     "mode": "raw",
+     "plane": "hor",
+     "angle": 30.0,
+     "file": "frd/LH/L_LH hor 30.frd",
+     "measurement_id": "28c90444-6119-4b58-a805-62ee042bb835",
+     "valid_band_hz": [
+      439.66516718658846,
+      5664.612008390828
+     ],
+     "protection_removed": [
+      {
+       "kind": "HP",
+       "topology": "BW2",
+       "qs": null,
+       "freq_hz": 700.0,
+       "protect": true
+      }
+     ]
+    },
+    {
+     "driver": "LH",
+     "mode": "raw",
+     "plane": "hor",
+     "angle": -10.0,
+     "file": "frd/LH/L_LH hor -10.frd",
+     "measurement_id": "df8cdd7d-7a40-4272-a53b-ab937838c7b5",
+     "valid_band_hz": [
+      433.36177501980563,
+      5664.612008390828
+     ],
+     "protection_removed": [
+      {
+       "kind": "HP",
+       "topology": "BW2",
+       "qs": null,
+       "freq_hz": 700.0,
+       "protect": true
+      }
+     ]
+    },
+    {
+     "driver": "LH",
+     "mode": "raw",
+     "plane": "hor",
+     "angle": -30.0,
+     "file": "frd/LH/L_LH hor -30.frd",
+     "measurement_id": "dda57de3-e13e-4ccd-87fb-924bd97c379b",
+     "valid_band_hz": [
+      433.36177501980563,
+      5664.612008390828
+     ],
+     "protection_removed": [
+      {
+       "kind": "HP",
+       "topology": "BW2",
+       "qs": null,
+       "freq_hz": 700.0,
+       "protect": true
+      }
+     ]
+    },
+    {
+     "driver": "LH",
+     "mode": "raw",
+     "plane": "ver",
+     "angle": 10.0,
+     "file": "frd/LH/L_LH ver 10.frd",
+     "measurement_id": "4f658e23-1323-474f-92c8-d14163d1685c",
+     "valid_band_hz": [
+      439.66516718658846,
+      5664.612008390828
+     ],
+     "protection_removed": [
+      {
+       "kind": "HP",
+       "topology": "BW2",
+       "qs": null,
+       "freq_hz": 700.0,
+       "protect": true
+      }
+     ]
+    },
+    {
+     "driver": "LH",
+     "mode": "raw",
+     "plane": "ver",
+     "angle": -10.0,
+     "file": "frd/LH/L_LH ver -10.frd",
+     "measurement_id": "e8078612-43cf-4e87-96e9-4e78d645c139",
+     "valid_band_hz": [
+      348.9624744528825,
+      5664.612008390828
+     ],
+     "protection_removed": [
+      {
+       "kind": "HP",
+       "topology": "BW2",
+       "qs": null,
+       "freq_hz": 700.0,
+       "protect": true
+      }
+     ]
+    }
+   ],
+   "files_xo": [
+    {
+     "driver": "LH",
+     "mode": "xo",
+     "plane": "hor",
+     "angle": 0.0,
+     "file": "frd/LH_xo/L_LH_xo hor 0.frd",
+     "measurement_id": "ae92403f-f5c1-43f6-ac65-bb85eef07cc0",
+     "valid_band_hz": [
+      324.6545071800075,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LH",
+     "mode": "xo",
+     "plane": "hor",
+     "angle": 10.0,
+     "file": "frd/LH_xo/L_LH_xo hor 10.frd",
+     "measurement_id": "543db4d6-8623-4212-b545-92dca73754e9",
+     "valid_band_hz": [
+      324.6545071800075,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LH",
+     "mode": "xo",
+     "plane": "hor",
+     "angle": 30.0,
+     "file": "frd/LH_xo/L_LH_xo hor 30.frd",
+     "measurement_id": "40aab6b0-98fb-4915-a6f2-5837af515528",
+     "valid_band_hz": [
+      329.3767157259175,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LH",
+     "mode": "xo",
+     "plane": "hor",
+     "angle": -10.0,
+     "file": "frd/LH_xo/L_LH_xo hor -10.frd",
+     "measurement_id": "cc3664cf-4090-4097-aa8f-40425cc89560",
+     "valid_band_hz": [
+      324.6545071800075,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LH",
+     "mode": "xo",
+     "plane": "hor",
+     "angle": -30.0,
+     "file": "frd/LH_xo/L_LH_xo hor -30.frd",
+     "measurement_id": "fafc2668-be55-4934-a1e2-5a40f0ae6e25",
+     "valid_band_hz": [
+      324.6545071800075,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LH",
+     "mode": "xo",
+     "plane": "ver",
+     "angle": 10.0,
+     "file": "frd/LH_xo/L_LH_xo ver 10.frd",
+     "measurement_id": "904ef1a0-ecc0-44e9-8d08-460666783417",
+     "valid_band_hz": [
+      320.0,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    },
+    {
+     "driver": "LH",
+     "mode": "xo",
+     "plane": "ver",
+     "angle": -10.0,
+     "file": "frd/LH_xo/L_LH_xo ver -10.frd",
+     "measurement_id": "0f7365b7-4fe3-4157-8051-965aea8e2da9",
+     "valid_band_hz": [
+      324.6545071800075,
+      5664.612008390828
+     ],
+     "protection_removed": []
+    }
+   ],
+   "nearfield": [],
+   "zma": [
+    {
+     "driver": "LH",
+     "label": "",
+     "file": "zma/L_LH.zma",
+     "measurement_id": "dd89770c-e4d5-4f5d-bd48-5788437757bc",
+     "source": "api",
+     "series_cap_uf": 22.0,
+     "cap_in_circuit": false,
+     "protection_cap": {
+      "corner_hz": 350.0,
+      "ohm_at_corner": 6.11,
+      "exact_uf": 74.44,
+      "suggested_uf": 68.0,
+      "suggested_corner_hz": 383.0,
+      "series": "E12, rounded down",
+      "voltage_note": "film capacitor rated 100 V or more",
+      "where": "in series with the compression driver's + lead, between the amplifier and the driver"
+     }
+    },
+    {
+     "driver": "LH",
+     "label": "post_soak",
+     "file": "zma/L_LH_post_soak.zma",
+     "measurement_id": "39ff5ce0-8487-4ae6-8ecd-40b710262448",
+     "source": "api",
+     "series_cap_uf": 22.0,
+     "cap_in_circuit": false,
+     "protection_cap": {
+      "corner_hz": 350.0,
+      "ohm_at_corner": 6.11,
+      "exact_uf": 74.44,
+      "suggested_uf": 68.0,
+      "suggested_corner_hz": 383.0,
+      "series": "E12, rounded down",
+      "voltage_note": "film capacitor rated 100 V or more",
+      "where": "in series with the compression driver's + lead, between the amplifier and the driver"
+     }
+    }
+   ],
+   "distortion": [
+    {
+     "driver": "LH",
+     "file": "distortion/L_LH_85dB.csv",
+     "measurement_id": "4e82fc57-2229-48bc-aa30-c414ee757d86",
+     "target_spl_db": 85.0,
+     "measured_spl_db": 84.72,
+     "ref_hz": 1000.0,
+     "mic_distance_m": 1.778,
+     "band_hz": [
+      420.0,
+      20000.0
+     ],
+     "columns": [
+      "freq_hz",
+      "fundamental_db",
+      "thd_pct",
+      "noise_pct",
+      "h2_pct",
+      "h3_pct"
+     ],
+     "series_cap_in_circuit": true
+    }
+   ]
+  }
+ ],
+ "sum_files": [
+  {
+   "driver": "sum",
+   "mode": "sum",
+   "plane": "hor",
+   "angle": 0.0,
+   "file": "frd/sum/L_sum hor 0.frd",
+   "measurement_id": "e859b9ee-3133-4ae1-bc19-1ca4b7c413b8",
+   "valid_band_hz": [
+    1045.7058900743036,
+    5664.612008390828
+   ],
+   "protection_removed": []
+  },
+  {
+   "driver": "sum",
+   "mode": "sum",
+   "plane": "hor",
+   "angle": 10.0,
+   "file": "frd/sum/L_sum hor 10.frd",
+   "measurement_id": "1440cbf2-984d-45a4-89a6-8d7c0a206164",
+   "valid_band_hz": [
+    1045.7058900743036,
+    5664.612008390828
+   ],
+   "protection_removed": []
+  },
+  {
+   "driver": "sum",
+   "mode": "sum",
+   "plane": "hor",
+   "angle": 30.0,
+   "file": "frd/sum/L_sum hor 30.frd",
+   "measurement_id": "e31af753-88b0-4fed-9cfd-67a50d6347ac",
+   "valid_band_hz": [
+    1045.7058900743036,
+    5664.612008390828
+   ],
+   "protection_removed": []
+  },
+  {
+   "driver": "sum",
+   "mode": "sum",
+   "plane": "hor",
+   "angle": -10.0,
+   "file": "frd/sum/L_sum hor -10.frd",
+   "measurement_id": "dd3a178f-0a2f-493b-9520-a5fccd0a4d63",
+   "valid_band_hz": [
+    945.1687334012796,
+    5664.612008390828
+   ],
+   "protection_removed": []
+  },
+  {
+   "driver": "sum",
+   "mode": "sum",
+   "plane": "hor",
+   "angle": -30.0,
+   "file": "frd/sum/L_sum hor -30.frd",
+   "measurement_id": "fe5c8fbd-5815-4e23-b0c6-0d77857197c9",
+   "valid_band_hz": [
+    1045.7058900743036,
+    5664.612008390828
+   ],
+   "protection_removed": []
+  },
+  {
+   "driver": "sum",
+   "mode": "sum",
+   "plane": "ver",
+   "angle": 10.0,
+   "file": "frd/sum/L_sum ver 10.frd",
+   "measurement_id": "c6ec5a7b-9b50-4547-8c3d-208279f65e6c",
+   "valid_band_hz": [
+    1060.916032491576,
+    5664.612008390828
+   ],
+   "protection_removed": []
+  },
+  {
+   "driver": "sum",
+   "mode": "sum",
+   "plane": "ver",
+   "angle": -10.0,
+   "file": "frd/sum/L_sum ver -10.frd",
+   "measurement_id": "273c989b-c820-409e-b8a7-f0837b0029ea",
+   "valid_band_hz": [
+    772.1628997123338,
+    5664.612008390828
+   ],
+   "protection_removed": []
+  }
+ ],
+ "capture_modes": [
+  "raw",
+  "xo",
+  "sum"
+ ],
+ "mic_cal": null,
+ "dsp_sample_rate": 96000,
+ "notes": [
+  "the ground bounce arrives 2.64 ms after the direct sound, inside the 5 ms gate: shorten the gate, or raise the speaker or the mic"
+ ],
+ "serial": "T-0001",
+ "reference": true,
+ "parts": {
+  "C1_uF": 22.1,
+  "L1_mH": 1.52
+ },
+ "transfer": [
+  {
+   "label": "horn",
+   "driver": "LH",
+   "file": "transfer/L_horn.frd",
+   "note": null
+  }
+ ],
+ "soak": [
+  {
+   "driver": "LH",
+   "minutes": 0.001,
+   "spl_db": 85.0,
+   "level_dbfs": -22.7,
+   "started": 1793526117.0792801,
+   "ended": 1793526117.1469314,
+   "completed": true
+  }
+ ]
+}

@@ -15,3 +15,5 @@ One line each, dated (ET), once both sides agree.
 - 2026-10-28 (Lee): No series cap value known. `series_cap_in_circuit` is false unless a value is given.
 - 2026-10-28 (Lee): the finished system is active: one central miniDSP (Flex HTx, pending probe), horns flush, woofer delay in DSP; no passive crossover.
 - 2026-10-31 (Lee): passive leads: each tower has a passive crossover with an LC all-pass on the woofer for the delay; the miniDSP tunes the mule and auditions the passive target; active (DSP or analog box) is the fallback. Supersedes the 2026-10-28 active line above.
+- 2026-11-01: Manifest schema `rewdio.speaker-session/3` (serial, reference, parts, transfer, soak, qa, capture_modes, files_xo, sum_files); fixture `examples/v3/`.
+- 2026-11-01: Audition protection = one of the target's own horn sections (HP 835 Hz Q 0.7602, protect); xo and sum captures are exported exactly as played, nothing divided out.

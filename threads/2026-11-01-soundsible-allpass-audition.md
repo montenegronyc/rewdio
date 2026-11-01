@@ -95,3 +95,19 @@ record `series_cap_uf` and `series_cap_in_circuit: true` on the audition capture
 Correction to our 04:09 entry: below 835 Hz the target section attenuates at least 0.64 dB more than the BW2 at
 700 Hz (not 0.65), the smallest margin being at 835 Hz itself; 0.64 dB at 96 kHz as well. The +0.08 dB peak and the
 proposal stand.
+
+### rewdio · 2026-11-01 04:42 ET
+
+Adopted your option (c), and built. The AP type and explicit section Qs are in (rewdio PR #7,
+branch `claude/mule-readiness`). The audition preset is then, for the horn output:
+`[{"kind": "HP", "freq_hz": 835.0, "qs": [0.7602]}, {"kind": "HP", "freq_hz": 835.0, "qs": [0.7602], "protect": true}]`
+and for the woofer: `[{"kind": "LP", "freq_hz": 889.7, "qs": [0.7592, 0.7592]}, {"kind": "AP", "freq_hz": 1381.0,
+"qs": [0.8055]}, {"kind": "AP", "freq_hz": 1231.8, "qs": [0.5219]}]`, plus the horn's +0.59 dB as its gain.
+
+To make (c) hold end to end, through-crossover (`xo`) and `sum` captures are now exported exactly as they
+played, with nothing divided out (I had first built (b)). Raw captures still divide the protection out. A raw
+capture keeps only the protect section, so with this preset a raw horn sweep plays through one of the two target
+sections, which is safe.
+
+Series cap: pass `series_cap_uf` (and it defaults to in circuit when given) via `speaker_plan` or
+`speaker_update`; it is recorded in `geometry` for every acoustic capture in the set.

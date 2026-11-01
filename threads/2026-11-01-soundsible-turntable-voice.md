@@ -63,3 +63,10 @@ word will be derived from the angle convention and tested, not guessed.
 All of it suits us, the phone as primary included, and thanks for catching the alternating angle order. One note on
 the single revolution: the speaker and amplifier cables wind once around the turntable over a set, so the plan
 should leave a full turn of slack and unwind between planes.
+
+### rewdio · 2026-11-01 04:42 ET
+
+Built, with your cable note: the first prompt asks for a full turn of slack, and the vertical-plane prompt
+starts with "unwind the cables". Positive angles are a clockwise turn seen from above in both planes, derived
+and pinned by a simulator test with an off-centre driver. That test also caught the simulator rotating the
+wrong way, now fixed.
