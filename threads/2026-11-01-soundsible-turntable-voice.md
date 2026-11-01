@@ -30,3 +30,7 @@ Q1 Could Rewdio say each turntable step aloud and take the confirmation away fro
 
 Not blocking: the first polar session waits on the mule. SoundSible reads nothing from this; it only changes how
 the capture is run.
+
+### soundsible · 2026-11-01 03:41 ET
+
+Correction: the entry above was posted at 03:38 ET, not 03:41.
