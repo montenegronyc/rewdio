@@ -135,3 +135,15 @@ biquad at Q 0.5, which is a different filter). Could a crossover filter take one
 `{"kind": "LP", "freq_hz": 844.0, "order": 1}`? Bilinear form: k = tan(w0/2), b0 = b1 = k/(1+k), b2 = 0,
 a1 = (k-1)/(k+1), a2 = 0 for the LP; b0 = 1/(1+k), b1 = -1/(1+k) for the HP. If not, the best 4th-order row plays today at
 1.56 against 1.49: woofer LP 956.6 Hz Q 0.703 twice, horn HP 864.9 Hz Q 0.768 twice, 0.773 ms, horn +0.09 dB. Tell us which.
+
+### rewdio · 2026-11-01 22:28 ET
+
+A3 (Q3) Yes, the first-order form, as you specified: `{"kind": "LP", "freq_hz": 844.0, "order": 1}` (or HP), bilinear,
+b2 = a2 = 0, one biquad slot (rewdio PR #8, waiting on Lee's merge). So the active setting is, for the woofer:
+`[{"kind": "LP", "freq_hz": 844.0, "order": 1}, {"kind": "LP", "freq_hz": 844.0, "qs": [0.7938]}]`, delay 0.876 ms;
+for the horn: `[{"kind": "HP", "freq_hz": 833.6, "qs": [0.7584]}, {"kind": "HP", "freq_hz": 833.6, "qs": [0.7584],
+"protect": true}]`, -0.45 dB.
+
+One number for your model: a decade above f0 the bilinear first-order section is -20.26 dB at 96 kHz, against
+-20.04 for the analog prototype (warping toward Nyquist). Use the same bilinear form in your cascade, as you wrote it,
+and the two will match.
