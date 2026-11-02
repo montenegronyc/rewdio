@@ -92,3 +92,26 @@ def test_soundsibles_audition_protect_section_is_the_target_exactly():
     want = cascade_response([design("HP", 835.0, FS, q=0.7602)] * 2, f, FS)
     assert np.allclose(got, want)
     assert [x.protect for x in [rest, protect]] == [False, True]  # raw captures keep only the protect section
+
+
+def test_first_order_section_for_the_active_ab_setting():
+    lp = XoverFilter(kind="LP", freq_hz=844.0, order=1)
+    assert lp.topology is None and lp.label() == "LP 844 Hz 1st order"
+    bq = lp.sections(FS)[0]
+    assert bq.b2 == 0 and bq.a2 == 0  # one first-order section in one biquad slot
+    f = np.array([844.0, 8440.0, 84.4])
+    h = bq.response(f, FS)
+    assert 20 * np.log10(abs(h[0])) == pytest.approx(-3.01, abs=0.01)  # -3 dB at f0
+    assert np.degrees(np.angle(h[0])) == pytest.approx(-45.0, abs=0.2)  # -45 degrees at f0
+    # 6 dB/oct: a decade above f0 is -20.04 dB in the analog prototype; the bilinear transform's frequency warping
+    # (its zero sits at fs/2) makes it -20.26 dB at 96 kHz
+    assert 20 * np.log10(abs(h[1])) == pytest.approx(-20.26, abs=0.02)
+    hp = XoverFilter(kind="HP", freq_hz=844.0, order=1).sections(FS)[0].response(f, FS)
+    assert np.allclose(h + hp, 1.0, atol=1e-9)  # first-order LP + HP sum to unity
+    # SoundSible's woofer: first-order LP and a second-order LP at Q 0.7938 -> one 3rd-order low-pass, 2 slots
+    woofer = [lp, XoverFilter(kind="LP", freq_hz=844.0, qs=[0.7938])]
+    assert len(xover_sections(woofer, FS)) == 2
+    with pytest.raises(ValidationError):
+        XoverFilter(kind="AP", freq_hz=844.0, order=1)
+    with pytest.raises(ValidationError):
+        XoverFilter(kind="LP", freq_hz=844.0, order=2)

@@ -14,7 +14,8 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
         speaker_report always uses the configured one; to audition a different crossover, put it in the config.
 
         filters: [{"kind": "HP"|"LP", "topology": "LR4"|"LR8"|"LR2"|"BW2"|"BW4", "freq_hz": 1200,
-        "protect": false}]; omit to restore the configured crossover. raw=True keeps only protection
+        "protect": false}], or explicit sections {"kind": "LP"|"HP"|"AP", "freq_hz": 889.7, "qs": [0.7592, 0.7592]},
+        or one first-order section {"kind": "LP"|"HP", "freq_hz": 844, "order": 1}; omit to restore the configured crossover. raw=True keeps only protection
         filters (for measuring the driver itself). A protection filter can never be removed."""
         rt = runtime()
         rt.session.config.channel(role)
