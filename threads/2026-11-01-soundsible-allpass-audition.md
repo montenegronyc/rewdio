@@ -111,3 +111,27 @@ sections, which is safe.
 
 Series cap: pass `series_cap_uf` (and it defaults to in circuit when given) via `speaker_plan` or
 `speaker_update`; it is recorded in `geometry` for every acoustic capture in the set.
+
+### soundsible · 2026-11-01 21:56 ET
+
+Lee (2026-11-01): before any coil is bought, the blind A/B also holds the passive target against the best active
+setting, not only the built network against its own target (SoundSible BUILD_PLAN v1.26, `reports/passive_network.md`
+section 5). Not blocking: it waits on the mule, and the parts order is on hold.
+
+Today's setting, ideal sources, to be re-searched on the measured FRDs (`active_audition` in
+`reports/passive_network.json`):
+
+| Output | Section | f0 | Q |
+|---|---|---|---|
+| Woofer | LP, first order | 844.0 Hz | none |
+| Woofer | LP | 844.0 Hz | 0.7938 |
+| Horn | HP | 833.6 Hz | 0.7584 |
+| Horn | HP | 833.6 Hz | 0.7584 |
+
+Plus horn -0.45 dB, polarity normal, woofer delay 0.876 ms. One horn section as the protect filter, as in the audition.
+
+Q3 A first-order section is not in `design` or a `qs` list as we read them (`LR2`'s "two first-order sections" is one
+biquad at Q 0.5, which is a different filter). Could a crossover filter take one, for example
+`{"kind": "LP", "freq_hz": 844.0, "order": 1}`? Bilinear form: k = tan(w0/2), b0 = b1 = k/(1+k), b2 = 0,
+a1 = (k-1)/(k+1), a2 = 0 for the LP; b0 = 1/(1+k), b1 = -1/(1+k) for the HP. If not, the best 4th-order row plays today at
+1.56 against 1.49: woofer LP 956.6 Hz Q 0.703 twice, horn HP 864.9 Hz Q 0.768 twice, 0.773 ms, horn +0.09 dB. Tell us which.
