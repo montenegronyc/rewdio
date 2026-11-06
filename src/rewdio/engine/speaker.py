@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import asynccontextmanager
 
 import numpy as np
 from pydantic import BaseModel, Field
 
+from ..analysis.quality import critical
 from ..config import ChannelKind, TimingMode
 from .production import ProductionExtras, Soak, Transfer
 from .rig import Rig
@@ -116,6 +118,12 @@ class SpeakerCapture(PassiveExtras, ProductionExtras, ExportMixin):
             raise ValueError("no speaker capture planned; call speaker_plan first")
         return st
 
+    def _require_driver(self, driver: str) -> SpeakerState:
+        st = self._require()
+        if driver not in st.drivers:
+            raise ValueError(f"{driver} is not a channel of {st.speaker}; its channels are {st.drivers}")
+        return st
+
     def drivers_of(self, speaker: str) -> list[str]:
         cfg = self.s.config
         ds = [c for c in cfg.channels if c.kind == ChannelKind.DRIVER and c.speaker == speaker]
@@ -197,8 +205,28 @@ class SpeakerCapture(PassiveExtras, ProductionExtras, ExportMixin):
         self._save(st)
         return {"ok": True, "confirmed": want}
 
-    async def _raw(self, roles: list[str], raw: bool) -> None:
-        await self.rig.set_crossovers(roles, raw=raw)  # one write for the whole speaker
+    @asynccontextmanager
+    async def _raw_mode(self, st: SpeakerState, solo: list[str] | None = None):
+        """Every driver raw (protection filters only) for the block, optionally soloed. Afterwards, whatever failed:
+        the configured crossovers go back FIRST (one write), then every output is unmuted, then the sweep level is
+        restored. The speaker is never left raw while waiting on the user."""
+        prev = self.rig.level_dbfs
+        try:
+            await self.rig.set_crossovers(st.drivers, raw=True)
+            if solo:
+                await self.rig.solo(solo)
+            yield
+        finally:
+            try:
+                await self.rig.set_crossovers(st.drivers, raw=False)
+                await self.rig.unmute_all()
+            finally:
+                self.rig.level_dbfs = prev
+
+    def _critical(self, ids: list[str]) -> list[dict]:
+        """The critical quality findings of these sweeps, each tagged with the channel that played."""
+        return [f | {"driver": m.roles[0]} for m in self.s.measurements if m.id in ids
+                for f in critical(m.extra.get("quality", []))]
 
     async def _sweep(self, roles: str | list[str], kind: str, position: str, **extra) -> str:
         rec, _ = await self.rig.measure([roles] if isinstance(roles, str) else roles, kind, position, **extra)
@@ -242,20 +270,17 @@ class SpeakerCapture(PassiveExtras, ProductionExtras, ExportMixin):
             took.append(mid)
         try:
             if "raw" in st.modes:
-                await self._raw(st.drivers, raw=True)
-                for d in st.drivers:
-                    await keep([d], d, "raw")
-                await self._raw(st.drivers, raw=False)
+                async with self._raw_mode(st):
+                    for d in st.drivers:
+                        await keep([d], d, "raw")
             if "xo" in st.modes:  # through each output exactly as configured
                 for d in st.drivers:
                     await keep([d], d, "xo")
             if "sum" in st.modes:
                 await keep(list(st.drivers), "sum", "sum")
         finally:
-            await self._raw(st.drivers, raw=False)  # never leave the speaker raw while waiting on the user
             await self.rig.unmute_all()
-        bad = [f | {"driver": m.roles[0]} for m in self.s.measurements if m.id in took
-               for f in m.extra.get("quality", []) if f.get("level") == "critical"]
+        bad = self._critical(took)
         if bad:  # same angle again once fixed: a clipped or noisy sweep would poison the whole set
             self._save(st)
             why = {"clipped": "Clipped", "low_snr": "Too quiet", "silent_channel": "No sound"}.get(bad[0].get("code"),
@@ -280,26 +305,15 @@ class SpeakerCapture(PassiveExtras, ProductionExtras, ExportMixin):
         return rep
 
     async def nearfield(self, driver: str, label: str = "nf") -> dict:
-        st = self._require()
-        if driver not in st.drivers:
-            raise ValueError(f"{driver} is not a driver of {st.speaker}; drivers: {st.drivers}")
+        st = self._require_driver(driver)
         if 0 < st.index < len(st.points):
             raise ValueError("a polar set is part-way: near-field means moving the mic, so finish the set first "
                              f"({st.index} of {len(st.points)} angles done)")
-        prev = self.rig.level_dbfs
-        try:
-            await self._raw(st.drivers, raw=True)
+        async with self._raw_mode(st):
             # millimetres from the cone it is ~30 dB louder than at the far-field distance
-            await self.rig.set_level(prev - 12.0)
+            await self.rig.set_level(self.rig.level_dbfs - 12.0)
             mid = await self._sweep(driver, "nearfield", label, speaker=st.speaker, driver=driver)
-        finally:
-            try:
-                await self._raw(st.drivers, raw=False)
-                await self.rig.unmute_all()
-            finally:
-                self.rig.level_dbfs = prev
-        bad = [f for m in self.s.measurements if m.id == mid
-               for f in m.extra.get("quality", []) if f.get("level") == "critical"]
+        bad = self._critical([mid])
         if bad:
             return {"status": "retry", "quality": bad, "message": "fix it and call speaker_nearfield again"}
         st.nearfield = [n for n in st.nearfield if not (n.driver == driver and n.label == label)]

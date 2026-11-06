@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from test_speaker_capture import _rig, _run
+from conftest import _rig, _run
 
 from rewdio.engine import qa
 from rewdio.engine.turntable import angles_for

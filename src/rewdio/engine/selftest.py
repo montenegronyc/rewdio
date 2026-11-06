@@ -25,6 +25,7 @@ from ..analysis.frd import arrival_s
 from ..config import TimingMode
 from ..minidsp.state import XoverFilter, change_transfer
 from ..rew.client import RewError
+from ..rew.codec import decode_floats
 from .rig import Rig
 
 DELAY_STEP_MS = 1.0
@@ -101,7 +102,9 @@ async def run(rig: Rig, driver: str, distance_m: float | None = None, impedance:
         # 3. startTime and the arrival
         raw = await rig.rew.get(f"/measurements/{rec_a.id}/impulse-response", windowed="false", normalised="false")
         has_t0 = isinstance(raw, dict) and raw.get("startTime") is not None
-        ir, fs, t0 = await rig.rew.impulse_response_timed(rec_a.id)
+        ir = decode_floats(raw["data"])  # one fetch: the same payload impulse_response_timed decodes
+        fs = float(raw.get("sampleRate") or 1.0 / float(raw["sampleInterval"]))
+        t0 = float(raw.get("startTime") or 0.0)
         arr_ms = arrival_s(ir, fs, t0) * 1000
         detail = f"startTime {'present' if has_t0 else 'MISSING'}; first arrival {arr_ms:.2f} ms"
         ok = has_t0

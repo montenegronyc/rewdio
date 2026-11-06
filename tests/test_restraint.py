@@ -1,6 +1,5 @@
-import numpy as np
-
 from conftest import drive
+
 from rewdio.analysis.response import Response, log_grid
 from rewdio.analysis.solver import Measured, footprint, peq_earns_place, solve
 from rewdio.minidsp.biquad import cascade_response, design, linkwitz_riley4

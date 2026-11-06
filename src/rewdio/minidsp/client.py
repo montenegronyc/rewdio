@@ -105,15 +105,3 @@ class MiniDSPClient:
                                "coeff": [{"index": i, **bq.to_minidsp()} for i, bq in enumerate(coeff)]})
             out["crossover"] = groups
         return out
-
-    async def set_master(self, *, volume_db: float | None = None, mute: bool | None = None,
-                         preset: int | None = None) -> None:
-        ms: dict[str, Any] = {}
-        if volume_db is not None:
-            ms["volume"] = float(volume_db)
-        if mute is not None:
-            ms["mute"] = mute
-        if preset is not None:
-            ms["preset"] = preset
-        if ms:
-            await self.apply({"master_status": ms})

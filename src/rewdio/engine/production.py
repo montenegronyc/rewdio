@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 from pydantic import BaseModel
 
+from ..analysis.frd import FrdFile
 from .speaker_extras import MAX_LISTENING_SPL_DB
 
 PINK_BELOW_SWEEP_DB = 3.0
@@ -50,9 +51,7 @@ class ProductionExtras:
     """Mixed into SpeakerCapture; uses its state, rig and save helpers."""
 
     async def transfer(self, stage: str, label: str, driver: str, note: str | None = None) -> dict:
-        st = self._require()
-        if driver not in st.drivers:
-            raise ValueError(f"{driver} is not a channel of {st.speaker}; channels: {st.drivers}")
+        st = self._require_driver(driver)
         if stage not in ("amp", "tap"):
             raise ValueError("stage is 'amp' (input across the amplifier output) or 'tap' (across the driver)")
         rec, _ = await self.rig.measure([driver], f"transfer_{stage}", label, speaker=st.speaker, label=label)
@@ -99,21 +98,18 @@ class ProductionExtras:
         self._save(st)
         rew = self.rig.rew
         try:
-            await self._raw(st.drivers, raw=True)  # protection filters only, as for every capture
-            await self.rig.solo([driver])
-            await rew.post("/generator/signal", {"signal": "pinknoise"})
-            await rew.post("/generator/level", {"value": level, "unit": "dBFS"})
-            await rew.post("/generator/command", {"command": "Play"})
-            await asyncio.sleep(minutes * 60)
-            rec.completed = True
+            async with self._raw_mode(st, solo=[driver]):  # protection filters only, as for every capture
+                try:
+                    await rew.post("/generator/signal", {"signal": "pinknoise"})
+                    await rew.post("/generator/level", {"value": level, "unit": "dBFS"})
+                    await rew.post("/generator/command", {"command": "Play"})
+                    await asyncio.sleep(minutes * 60)
+                    rec.completed = True
+                finally:  # the noise stops before the crossover goes back
+                    await rew.post("/generator/command", {"command": "Stop"})
         finally:
-            try:
-                await rew.post("/generator/command", {"command": "Stop"})
-            finally:
-                rec.ended = time.time()
-                await self._raw(st.drivers, raw=False)
-                await self.rig.unmute_all()
-                self._save(st)
+            rec.ended = time.time()
+            self._save(st)
         return {"ok": True, "driver": driver, "minutes": minutes, "level_dbfs": level,
                 "next": f"wire the impedance jig and call speaker_impedance(driver='{driver}', label='post_soak')"}
 
@@ -123,13 +119,10 @@ class ProductionExtras:
             d = json.loads((self.s.dir / "data" / f"{t.tap_id}.xfer.json").read_text())
             h = np.asarray(d["re"]) + 1j * np.asarray(d["im"])
             rel = Path("transfer") / f"{st.speaker}_{t.label}.frd"
-            lines = [f"* Rewdio network transfer: {st.speaker} {t.label} (tap / amplifier output)",
-                     f"* REW measurements {t.amp_id} (amp) and {t.tap_id} (tap); {t.note or ''}",
-                     "* freq(Hz)\tdB\tphase(deg)"]
-            lines += [f"{f:.6f}\t{20 * np.log10(max(abs(x), 1e-12)):.4f}\t{np.degrees(np.angle(x)):.4f}"
-                      for f, x in zip(d["freqs"], h)]
-            (out / rel).parent.mkdir(parents=True, exist_ok=True)
-            (out / rel).write_text("\n".join(lines) + "\n")
+            FrdFile(out / rel, np.asarray(d["freqs"]), h,
+                    [f"Rewdio network transfer: {st.speaker} {t.label} (tap / amplifier output)",
+                     f"REW measurements {t.amp_id} (amp) and {t.tap_id} (tap); {t.note or ''}",
+                     "freq(Hz)\tdB\tphase(deg)"]).write()
             xfers.append({"label": t.label, "driver": t.driver, "file": rel.as_posix(), "note": t.note})
         return {"serial": st.serial, "reference": st.reference, "parts": st.parts, "transfer": xfers,
                 "soak": [s.model_dump() for s in st.soaks]}

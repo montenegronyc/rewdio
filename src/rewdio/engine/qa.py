@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from ..analysis.frd import read_frd
-from ..analysis.response import smooth_db
+from ..analysis.response import band, smooth_db
 from ..config import deep_merge
 
 
@@ -66,8 +66,17 @@ def _on_grid(f_src, y_src, f_dst):
     return np.interp(np.log(f_dst), np.log(f_src), y_src, left=np.nan, right=np.nan)
 
 
-def _band(f, band):
-    return (f >= band[0]) & (f <= band[1])
+def _on_grid_c(f_src, h_src, f_dst):
+    """Complex response on another log grid; NaN outside the source range (never extrapolated)."""
+    return _on_grid(f_src, h_src.real, f_dst) + 1j * _on_grid(f_src, h_src.imag, f_dst)
+
+
+def _band(f, lims):
+    return band(f, *lims)
+
+
+def _zma(d: dict, label: str = "") -> dict | None:
+    return next((z for z in d.get("zma", []) if (z.get("label") or "") == label), None)
 
 
 def _pairs(a: SetData, b: SetData):
@@ -78,8 +87,7 @@ def _pairs(a: SetData, b: SetData):
 def check_impedance(c: SetData, r: SetData, t: dict) -> list[dict]:
     out = []
     for dc, dr in _pairs(c, r):
-        zc = next((z for z in dc.get("zma", []) if not z.get("label")), None)
-        zr = next((z for z in dr.get("zma", []) if not z.get("label")), None)
+        zc, zr = _zma(dc), _zma(dr)
         if not (zc and zr):
             continue
         fr, ohm_r = r.zma(zr["file"])
@@ -109,7 +117,7 @@ def check_transfer(c: SetData, r: SetData, t: dict) -> list[dict]:
         m = _band(fr, t["band_hz"])
         db_r = 20 * np.log10(np.abs(hr))
         m &= db_r > db_r[m].max() - t["passband_window_db"]
-        hcm = _on_grid(fc, hc.real, fr[m]) + 1j * _on_grid(fc, hc.imag, fr[m])
+        hcm = _on_grid_c(fc, hc, fr[m])
         err = hcm / hr[m]
         db = np.abs(20 * np.log10(np.abs(err)))
         deg = np.abs(np.degrees(np.angle(err)))
@@ -136,7 +144,7 @@ def check_polarity(c: SetData, r: SetData, t: dict) -> list[dict]:
         fr, hr = r.frd(er["file"])
         fc, hc = c.frd(ec["file"])
         m = _band(fr, t["band_hz"])
-        hcm = _on_grid(fc, hc.real, fr[m]) + 1j * _on_grid(fc, hc.imag, fr[m])
+        hcm = _on_grid_c(fc, hc, fr[m])
         corr = float(np.real(np.nansum(hcm * np.conj(hr[m]))) / np.nansum(np.abs(hcm) * np.abs(hr[m])))
         out.append(_res("polarity", dc["role"], corr > 0, None, corr,
                         "same polarity as the reference" if corr > 0 else "INVERTED against the reference"))
@@ -179,7 +187,7 @@ def check_pair(a: SetData, b: SetData, t: dict) -> list[dict]:
         out.append(_mag_compare("pair", f"{da['role']}/{db_['role']}", fa, ha, fb, hb, t["band_hz"], t["max_db"],
                                 t["smoothing_oct"]))
         m = _band(fb, t["phase_band_hz"])
-        hm = _on_grid(fa, ha.real, fb[m]) + 1j * _on_grid(fa, ha.imag, fb[m])
+        hm = _on_grid_c(fa, ha, fb[m])
         deg = np.abs(np.degrees(np.angle(hm / hb[m])))
         i = int(np.nanargmax(deg))
         out.append(_res("pair_phase", f"{da['role']}/{db_['role']}", bool(deg[i] <= t["max_deg"]), fb[m][i],
@@ -227,8 +235,7 @@ def _rub_buzz(role, spl, dc: dict, dr: dict, t: dict) -> dict:
 def check_soak(c: SetData, t: dict) -> list[dict]:
     out = []
     for d in c.drivers:
-        pre = next((z for z in d.get("zma", []) if not z.get("label")), None)
-        post = next((z for z in d.get("zma", []) if z.get("label") == "post_soak"), None)
+        pre, post = _zma(d), _zma(d, "post_soak")
         if not (pre and post):
             continue
         f0, z0 = c.zma(pre["file"])

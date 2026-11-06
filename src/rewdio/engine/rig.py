@@ -139,9 +139,7 @@ class Rig:
     async def set_crossover(self, role: str, filters: list[XoverFilter] | None = None, raw: bool = False) -> OutputState:
         """Write a channel's crossover: `filters`, else its configured crossover. raw=True keeps only the
         protection filters, for capturing the driver itself. Protection filters can never be dropped."""
-        ch = self.cfg.channel(role)
-        if ch.crossover is None:
-            raise ValueError(f"{role} has no `crossover` in the config, so Rewdio does not manage its crossover")
+        ch = self._managed(role)
         want = list(filters if filters is not None else ch.crossover)
         if raw:
             want = [f for f in want if f.protect]
@@ -150,13 +148,17 @@ class Rig:
         await self._commit(new, [role])
         return self.s.dsp.get(role)
 
+    def _managed(self, role: str):
+        ch = self.cfg.channel(role)
+        if ch.crossover is None:
+            raise ValueError(f"{role} has no `crossover` in the config, so Rewdio does not manage its crossover")
+        return ch
+
     async def set_crossovers(self, roles: list[str], raw: bool) -> None:
         """Every role's configured crossover (raw=True: protection filters only), in ONE write."""
         new = self._copy()
         for r in roles:
-            ch = self.cfg.channel(r)
-            if ch.crossover is None:
-                raise ValueError(f"{r} has no `crossover` in the config, so Rewdio does not manage its crossover")
+            ch = self._managed(r)
             new.get(r).crossover = [f for f in ch.crossover if f.protect] if raw else list(ch.crossover)
         await self._commit(new, roles)
 

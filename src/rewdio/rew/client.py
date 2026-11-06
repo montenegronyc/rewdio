@@ -214,9 +214,6 @@ class RewClient:
             return raw
         return sorted(({**v, "index": int(k)} for k, v in raw.items()), key=lambda m: m["index"])
 
-    async def measurement(self, ident: str) -> dict:
-        return await self.get(f"/measurements/{ident}")
-
     async def annotate(self, ident: str, title: str, provenance: dict) -> None:
         """Write provenance JSON into the measurement's notes so a saved .mdat explains itself."""
         try:

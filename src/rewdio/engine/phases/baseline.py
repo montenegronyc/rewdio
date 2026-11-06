@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 
 from ...analysis.alignment import fit_relative_delay
-from ...analysis.quality import repeatability_db
+from ...analysis.quality import critical, repeatability_db
 from ...analysis.solver import Measured
 from ...config import ChannelKind, TimingMode
 from .base import PhaseBase
@@ -28,7 +28,7 @@ class BaselinePhase(PhaseBase):
         q = rec.extra.get("quality") or []
         for f in q:
             self.wf.quality.append({"measurement": rec.id, "roles": roles, "position": pos, **f})
-        crit = [f for f in q if f["level"] == "critical"]
+        crit = critical(q)
         if crit:
             self.s.measurements.remove(rec)  # never solve from a bad sweep
             self.s.save()
