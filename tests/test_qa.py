@@ -103,3 +103,42 @@ async def test_soak_refuses_above_the_listening_ceiling_or_without_a_level(sim_r
         rt.speaker.soak_level("LH", 85.0)
     with pytest.raises(ValueError, match="ceiling"):
         rt.speaker.soak_level("LH", 96.0)
+
+
+def _manifest(folder):
+    return folder / "rewdio_session.json"
+
+
+async def test_missing_data_fails_instead_of_passing(sets, tmp_path):
+    rt, ref, cand = sets
+    m = json.loads(_manifest(cand).read_text())
+    for d in m["drivers"]:
+        if d["role"] == "LW":
+            d["zma"] = []
+    m["soak"] = []
+    _manifest(cand).write_text(json.dumps(m))
+    rep = qa.run(cand, ref, home=tmp_path)
+    failed = set(rep["failed"])
+    assert "impedance LW" in failed and "soak LH" in failed and not rep["pass"]
+
+
+async def test_data_cut_short_fails_on_coverage(sets, tmp_path):
+    rt, ref, cand = sets
+    z = cand / "zma" / "L_LW.zma"
+    keep = [ln for ln in z.read_text().splitlines()
+            if ln.startswith("*") or 20 <= float(ln.split("\t")[0]) <= 150]
+    z.write_text("\n".join(keep) + "\n")
+    rep = qa.run(cand, ref, home=tmp_path)
+    imp = next(r for r in rep["results"] if r["check"] == "impedance" and r["subject"] == "LW")
+    assert imp["pass"] is False and "covers" in imp["detail"]
+
+
+async def test_no_overlap_does_not_crash(sets, tmp_path):
+    rt, ref, cand = sets
+    z = cand / "zma" / "L_LW.zma"
+    rows = [ln if ln.startswith("*") else "\t".join([f"{float(ln.split(chr(9))[0]) * 1e4:.1f}", *ln.split("\t")[1:]])
+            for ln in z.read_text().splitlines()]
+    z.write_text("\n".join(rows) + "\n")
+    rep = qa.run(cand, ref, home=tmp_path)
+    imp = next(r for r in rep["results"] if r["check"] == "impedance" and r["subject"] == "LW")
+    assert imp["pass"] is False

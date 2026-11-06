@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from ..analysis.quality import critical
 from ..config import ChannelKind, TimingMode
+from ..rew.client import RewError
 from .production import ProductionExtras, Soak, Transfer
 from .rig import Rig
 from .speaker_export import MANIFEST_SCHEMA, ExportMixin  # noqa: F401 (re-exported)
@@ -206,22 +207,27 @@ class SpeakerCapture(PassiveExtras, ProductionExtras, ExportMixin):
         return {"ok": True, "confirmed": want}
 
     @asynccontextmanager
-    async def _raw_mode(self, st: SpeakerState, solo: list[str] | None = None):
-        """Every driver raw (protection filters only) for the block, optionally soloed. Afterwards, whatever failed:
-        the configured crossovers go back FIRST (one write), then every output is unmuted, then the sweep level is
-        restored. The speaker is never left raw while waiting on the user."""
-        prev = self.rig.level_dbfs
+    async def _raw_mode(self, st: SpeakerState):
+        """Every driver raw (protection filters only) for the block. Afterwards, whatever failed:
+        the configured crossovers go back FIRST (one write), then every output's mute is put back as it was found,
+        then the sweep level is restored. The speaker is never left raw while waiting on the user."""
+        prev, mutes = self.rig.level_dbfs, self.rig.mutes()
         try:
             await self.rig.set_crossovers(st.drivers, raw=True)
-            if solo:
-                await self.rig.solo(solo)
             yield
         finally:
             try:
                 await self.rig.set_crossovers(st.drivers, raw=False)
-                await self.rig.unmute_all()
+                await self.rig.set_mutes(mutes)
             finally:
                 self.rig.level_dbfs = prev
+
+    @asynccontextmanager
+    async def _configured(self, st: SpeakerState):
+        """Through-crossover captures play exactly the configured crossover, whatever a set_crossover audition
+        left on the miniDSP."""
+        await self.rig.set_crossovers(st.drivers, raw=False)
+        yield
 
     def _critical(self, ids: list[str]) -> list[dict]:
         """The critical quality findings of these sweeps, each tagged with the channel that played."""
@@ -243,7 +249,10 @@ class SpeakerCapture(PassiveExtras, ProductionExtras, ExportMixin):
         if level_dbfs is not None:
             await self.rig.set_level(level_dbfs)
         if skip:
-            st.skipped.append(st.points[st.index])
+            p = st.points[st.index]
+            # a failed attempt may have kept some sweeps here: a skipped angle holds none, so it never exports half
+            st.captures = [c for c in st.captures if not (c.plane == p.plane and c.angle == p.angle)]
+            st.skipped = [q for q in st.skipped if q != p] + [p]
             st.index += 1
             self._save(st)
             if st.done:
@@ -268,18 +277,34 @@ class SpeakerCapture(PassiveExtras, ProductionExtras, ExportMixin):
                                                           and c.angle == p.angle and c.mode == mode)]
             st.captures.append(Capture(driver=driver, plane=p.plane, angle=p.angle, id=mid, mode=mode))
             took.append(mid)
+        mutes = self.rig.mutes()
         try:
             if "raw" in st.modes:
                 async with self._raw_mode(st):
                     for d in st.drivers:
                         await keep([d], d, "raw")
             if "xo" in st.modes:  # through each output exactly as configured
-                for d in st.drivers:
-                    await keep([d], d, "xo")
+                async with self._configured(st):
+                    for d in st.drivers:
+                        await keep([d], d, "xo")
             if "sum" in st.modes:
                 await keep(list(st.drivers), "sum", "sum")
+        except RewError as e:
+            if not e.aborted:
+                raise
+            # REW's protection stopped a sweep: 6 dB down (the safe direction) and the same angle again
+            await self.rig.set_level(self.rig.level_dbfs - 6.0)
+            self._save(st)
+            speech = f"Too loud at {p.angle:+g}. Six dB down. Again."
+            self._result("retry", speech, p.model_dump())
+            await self._announce(speech)
+            return {"status": "retry", "point": p.model_dump(), "speech": speech,
+                    "quality": [{"code": f"rew_{e.aborted}_abort", "message": str(e)}],
+                    "level_dbfs": self.rig.level_dbfs,
+                    "message": "REW stopped the sweep at its protection limit. The sweep level is now "
+                               f"{self.rig.level_dbfs:g} dBFS; call speaker_step again (or pass level_dbfs)"}
         finally:
-            await self.rig.unmute_all()
+            await self.rig.set_mutes(mutes)
         bad = self._critical(took)
         if bad:  # same angle again once fixed: a clipped or noisy sweep would poison the whole set
             self._save(st)

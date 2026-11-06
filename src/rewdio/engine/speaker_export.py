@@ -238,6 +238,7 @@ class ExportMixin:
                             "indoor": env.indoor, "site": env.site, "started_et": env.started_et,
                             "soundsible_commit": env.soundsible_commit},
             "timing": {"reference": cfg.timing_mode.value, "common_delay_removed_ms": round(t_ref_s * 1000, 4)},
+            "skipped": [{"plane": q.plane, "angle": q.angle} for q in st.skipped],  # planned, given up: no FRDs
             "gate": {"pre_ms": gate.pre_ms, "gate_ms": gate.gate_ms, "taper_ms": gate.taper_ms,
                      "valid_from_hz": round(gate.valid_from_hz, 1),
                      "gate_check": {"extend_ms": [1.0, 2.0], "tolerance_db": 0.5, "smoothing": "1/12 oct",

@@ -163,7 +163,7 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
     async def export_frd(out_dir: str | None = None, gate_ms: float = 5.0, pre_ms: float = 2.0,
                          ppo: int = 48, root: str | None = None) -> dict:
         """Write the captured set: <root>/measurements/<date>_<site>_<variant>/ (root defaults to REWDIO_HOME;
-        out_dir overrides the whole path) with rewdio_session.json (schema rewdio.speaker-session/2) at the
+        out_dir overrides the whole path) with rewdio_session.json (schema rewdio.speaker-session/3) at the
         top, frd/<driver>/ ('<speaker>_<driver> hor 30.frd'), zma/ and distortion/. One common delay is removed
         from every file, so in VituixCAD set every driver's X/Y/Z offset to 0. gate_ms: up to the first
         reflection; each file also reports the band that survives moving the gate end +1/+2 ms."""

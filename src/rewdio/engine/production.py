@@ -98,8 +98,9 @@ class ProductionExtras:
         self._save(st)
         rew = self.rig.rew
         try:
-            async with self._raw_mode(st, solo=[driver]):  # protection filters only, as for every capture
+            async with self._raw_mode(st):  # protection filters only, as for every capture
                 try:
+                    await self.rig.route([driver])  # REW output channel and solo, as for a sweep
                     await rew.post("/generator/signal", {"signal": "pinknoise"})
                     await rew.post("/generator/level", {"value": level, "unit": "dBFS"})
                     await rew.post("/generator/command", {"command": "Play"})

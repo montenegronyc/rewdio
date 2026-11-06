@@ -71,7 +71,8 @@ class PassiveExtras:
         if rew_measurement_id is None:
             source = "api"
             try:
-                async with self._raw_mode(st, solo=[driver]):
+                async with self._raw_mode(st):
+                    await self.rig.route([driver])
                     summary = await rew.sweep(f"{st.speaker}_{driver} impedance ({st.variant})",
                                               notes="rewdio impedance", command="Impedance")
             except RewError as e:
@@ -153,8 +154,15 @@ class PassiveExtras:
                         if abs(measured - target) <= tolerance_db:
                             break
                         step = float(np.clip(target - measured, -gs.max_step_down_db, gs.max_step_up_db))
+                        # REW aborts on the LOUDEST point of the sweep, not the reading at ref_hz: keep the
+                        # driver's peak 3 dB under its limit, and record what it reached if that stops the search
+                        inband = (resp.freqs >= band[0]) & (resp.freqs <= band[1])
+                        headroom = sw.max_spl_db - 3 - float(np.max(resp.mag_db[inband]))
+                        step = min(step, headroom)
                         if step > 0 and self.rig.level_dbfs >= sw.max_level_dbfs:
                             break  # already at the level ceiling: record what it can do
+                        if abs(step) < 0.1:
+                            break  # held at the peak limit
                         await self.rig.set_level(self.rig.level_dbfs + step)
                     headers, rows = await rew.distortion(rec.id, ppo=ppo)
                     self.s._write(f"data/{rec.id}.dist.json", {"headers": headers, "rows": rows})

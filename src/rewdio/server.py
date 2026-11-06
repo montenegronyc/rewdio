@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import os
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from .analysis.metrics import summarize
 from .dashboard.app import serve_in_background
@@ -61,7 +63,27 @@ async def lifespan(_server):
         yield {}
 
 
-mcp = MCPServer("rewdio", instructions=INSTRUCTIONS, lifespan=lifespan)
+class RewdioServer(MCPServer):
+    """Every failure a tool raises reaches Claude with its message. The SDK shows only "Error executing tool X"
+    for anything but ToolError, and Rewdio's refusals (ValueError, RewError, ...) carry the fix in their text."""
+
+    def tool(self, *args, **kwargs):
+        register = super().tool(*args, **kwargs)
+
+        def wrap(fn):
+            @functools.wraps(fn)
+            async def tool(*a, **kw):
+                try:
+                    return await fn(*a, **kw)
+                except ToolError:
+                    raise
+                except Exception as e:  # noqa: BLE001 - reported to the caller, not swallowed
+                    raise ToolError(f"{type(e).__name__}: {e}") from e
+            return register(tool)
+        return wrap
+
+
+mcp = RewdioServer("rewdio", instructions=INSTRUCTIONS, lifespan=lifespan)
 
 
 def runtime() -> Runtime:
@@ -291,8 +313,12 @@ async def save_setup(name: str, note: str | None = None, measure_first: bool = F
         async with exclusive(rt) as ok:
             if not ok:
                 return BUSY
-            await rt.rig.measure([c.role for c in rt.session.config.channels], "listening", rt.session.config.mic_positions[0])
-            await rt.rig.unmute_all()
+            mutes = rt.rig.mutes()
+            try:
+                await rt.rig.measure([c.role for c in rt.session.config.room_channels], "listening",
+                                     rt.session.config.mic_positions[0])
+            finally:
+                await rt.rig.set_mutes(mutes)
     d = dsp_setups.save(rt.session, name, note)
     return {k: d.get(k) for k in ("ok", "id", "name", "created", "bass_std_db", "message")}
 

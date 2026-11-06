@@ -44,6 +44,10 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
 
     async def step(self, max_sweeps: int | None = None) -> dict:
         """Run until a human is needed, the run converges, or the sweep budget is spent."""
+        if not self.cfg.room_channels:  # gain staging would sweep nothing and keep raising the level
+            return {"status": "error", "phase": self.wf.phase,
+                    "error": "no room channels (mains or subs) in the config: the autopilot calibrates the room "
+                             "system. For driver channels use speaker_plan / speaker_step."}
         budget = max_sweeps or self.cfg.tuning.autopilot.max_sweeps_per_step
         log: list[str] = []
         start = len(self.s.measurements)
@@ -71,9 +75,9 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
                                 note="Fix the cause and call autopilot_step again; it resumes where it stopped.")
 
     async def _restore_listening(self, log) -> bool:
-        """Never leave the system soloed after a failure: unmute everything (current settings kept)."""
+        """Never leave the system soloed after a failure: unmute the room system (current settings kept)."""
         try:
-            await self.rig.unmute_all()
+            await self.rig.unmute_room()
             return True
         except Exception as e:
             log.append(f"could not unmute outputs ({e}); check the miniDSP before listening")

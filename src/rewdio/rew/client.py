@@ -33,6 +33,14 @@ class RewError(RuntimeError):
         self.status = status
         self.valid_values = valid_values or []
 
+    @property
+    def aborted(self) -> str | None:
+        """'spl' or 'clip' when REW's own protection stopped the sweep (too loud), else None."""
+        t = str(self).lower()
+        if "abort" not in t and "exceeded" not in t:
+            return None
+        return "clip" if "clip" in t else "spl" if "spl" in t else None
+
 
 @dataclass
 class Spectrum:
