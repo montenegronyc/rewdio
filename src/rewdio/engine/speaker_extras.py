@@ -66,23 +66,21 @@ class PassiveExtras:
         """One driver's mounted impedance on an impedance jig. Rewdio triggers REW's impedance sweep; if this
         REW refuses that over its API, take it in REW's GUI and pass `rew_measurement_id` to import it.
         cap_in_circuit defaults to False: the passive design wants the driver alone."""
-        st = self._require()
-        if driver not in st.drivers:
-            raise ValueError(f"{driver} is not a driver of {st.speaker}; drivers: {st.drivers}")
+        st = self._require_driver(driver)
+        if label == "post_soak" and not any(k.driver == driver and k.completed for k in st.soaks):
+            raise ValueError(f"no completed soak on {driver} in this set: run speaker_soak first (a soak stopped early "
+                             "does not count)")
         rew, source = self.rig.rew, "imported"
         if rew_measurement_id is None:
             source = "api"
             try:
-                await self._raw(st.drivers, raw=True)
-                await self.rig.solo([driver])
-                summary = await rew.sweep(f"{st.speaker}_{driver} impedance ({st.variant})",
-                                          notes="rewdio impedance", command="Impedance")
+                async with self._raw_mode(st):
+                    await self.rig.route([driver])
+                    summary = await rew.sweep(f"{st.speaker}_{driver} impedance ({st.variant})",
+                                              notes="rewdio impedance", command="Impedance")
             except RewError as e:
                 raise RewError(f"REW did not run an impedance sweep over its API ({e}). Take it in REW's GUI "
                                "(Measure, Impedance, with the jig) and call again with rew_measurement_id") from e
-            finally:
-                await self._raw(st.drivers, raw=False)
-                await self.rig.unmute_all()
             rew_measurement_id = summary["uuid"]
         spec = await rew.impedance(rew_measurement_id, ppo=ppo)
         ohm = np.asarray(spec.mag_db, float)  # ohms for an impedance measurement
@@ -120,9 +118,7 @@ class PassiveExtras:
         """Sweep one driver (raw, protection kept) at each target SPL (measured at `ref_hz` at the mic, which
         stays where the set records it) and keep REW's harmonic distortion. The level search starts at the
         quietest sweep level and steps up at most gain_staging.max_step_up_db per sweep, up to five sweeps."""
-        st = self._require()
-        if driver not in st.drivers:
-            raise ValueError(f"{driver} is not a driver of {st.speaker}; drivers: {st.drivers}")
+        st = self._require_driver(driver)
         cfg = self.s.config
         sw, gs = cfg.sweep, cfg.tuning.gain_staging
         loud = [x for x in spl_db if x > MAX_LISTENING_SPL_DB]
@@ -142,46 +138,48 @@ class PassiveExtras:
         if not floor <= ref_hz <= band[1] / 1.25:
             raise ValueError(f"ref_hz {ref_hz:g} must sit inside where {driver} plays: between {floor:g} and "
                              f"{band[1] / 1.25:g} Hz for this band and protection filter")
-        rew, results, prev_level = self.rig.rew, [], self.rig.level_dbfs
+        rew, results = self.rig.rew, []
         try:
-            await self._raw(st.drivers, raw=True)
-            await self.rig.prepare_rew()
-            await rew.configure_sweep(int(band[0]), int(band[1]), sw.length, sw.start_delay_s, sw.rew_sample_rate,
-                                      sw.fill_silence_with_dither)
-            await self.rig.set_level(sw.min_level_dbfs)  # every level search starts quiet
-            for target in sorted(spl_db):  # quietest target first
-                rec = measured = None
-                for _ in range(5):
-                    rec, resp = await self.rig.measure([driver], "distortion", f"{target:g} dB", speaker=st.speaker,
-                                                       driver=driver, target_spl_db=target)
-                    m = (resp.freqs >= ref_hz * 2 ** (-1 / 6)) & (resp.freqs <= ref_hz * 2 ** (1 / 6))
-                    measured = float(np.median(resp.mag_db[m])) if m.any() else float("nan")
-                    if not np.isfinite(measured):
-                        raise ValueError(f"no reading at {ref_hz:g} Hz: check the band and the wiring")
-                    if abs(measured - target) <= tolerance_db:
-                        break
-                    step = float(np.clip(target - measured, -gs.max_step_down_db, gs.max_step_up_db))
-                    if step > 0 and self.rig.level_dbfs >= sw.max_level_dbfs:
-                        break  # already at the level ceiling: record what it can do
-                    await self.rig.set_level(self.rig.level_dbfs + step)
-                headers, rows = await rew.distortion(rec.id, ppo=ppo)
-                self.s._write(f"data/{rec.id}.dist.json", {"headers": headers, "rows": rows})
-                st.distortion = [d for d in st.distortion if not (d.driver == driver and d.target_spl_db == target)]
-                st.distortion.append(Distortion(driver=driver, id=rec.id, target_spl_db=target,
-                                                measured_spl_db=round(measured, 2), ref_hz=ref_hz,
-                                                distance_m=st.distance_m, level_dbfs=rec.level_dbfs,
-                                                band_hz=band))
-                self._save(st)
-                results.append({"target_spl_db": target, "measured_spl_db": round(measured, 2),
-                                "level_dbfs": rec.level_dbfs, "id": rec.id,
-                                "reached": abs(measured - target) <= tolerance_db})
-        finally:  # crossover back FIRST: if REW is what failed, the speaker must not be left raw
-            try:
-                await self._raw(st.drivers, raw=False)
-                await self.rig.unmute_all()
-            finally:
-                self.rig._rew_ready = False  # the next sweep re-applies the normal sweep range
-                self.rig.level_dbfs = prev_level  # and the level it was at before, not the config default
+            async with self._raw_mode(st):  # crossover back first, level restored, whatever fails
+                await self.rig.prepare_rew()
+                await rew.configure_sweep(int(band[0]), int(band[1]), sw.length, sw.start_delay_s, sw.rew_sample_rate,
+                                          sw.fill_silence_with_dither)
+                await self.rig.set_level(sw.min_level_dbfs)  # every level search starts quiet
+                for target in sorted(spl_db):  # quietest target first
+                    rec = measured = None
+                    for _ in range(5):
+                        rec, resp = await self.rig.measure([driver], "distortion", f"{target:g} dB", speaker=st.speaker,
+                                                           driver=driver, target_spl_db=target)
+                        m = (resp.freqs >= ref_hz * 2 ** (-1 / 6)) & (resp.freqs <= ref_hz * 2 ** (1 / 6))
+                        measured = float(np.median(resp.mag_db[m])) if m.any() else float("nan")
+                        if not np.isfinite(measured):
+                            raise ValueError(f"no reading at {ref_hz:g} Hz: check the band and the wiring")
+                        if abs(measured - target) <= tolerance_db:
+                            break
+                        step = float(np.clip(target - measured, -gs.max_step_down_db, gs.max_step_up_db))
+                        # REW aborts on the LOUDEST point of the sweep, not the reading at ref_hz: keep the
+                        # driver's peak 3 dB under its limit, and record what it reached if that stops the search
+                        inband = (resp.freqs >= band[0]) & (resp.freqs <= band[1])
+                        headroom = sw.max_spl_db - 3 - float(np.max(resp.mag_db[inband]))
+                        step = min(step, headroom)
+                        if step > 0 and self.rig.level_dbfs >= sw.max_level_dbfs:
+                            break  # already at the level ceiling: record what it can do
+                        if abs(step) < 0.1:
+                            break  # held at the peak limit
+                        await self.rig.set_level(self.rig.level_dbfs + step)
+                    headers, rows = await rew.distortion(rec.id, ppo=ppo)
+                    self.s._write(f"data/{rec.id}.dist.json", {"headers": headers, "rows": rows})
+                    st.distortion = [d for d in st.distortion if not (d.driver == driver and d.target_spl_db == target)]
+                    st.distortion.append(Distortion(driver=driver, id=rec.id, target_spl_db=target,
+                                                    measured_spl_db=round(measured, 2), ref_hz=ref_hz,
+                                                    distance_m=st.distance_m, level_dbfs=rec.level_dbfs,
+                                                    band_hz=band))
+                    self._save(st)
+                    results.append({"target_spl_db": target, "measured_spl_db": round(measured, 2),
+                                    "level_dbfs": rec.level_dbfs, "id": rec.id,
+                                    "reached": abs(measured - target) <= tolerance_db})
+        finally:
+            self.rig._rew_ready = False  # the next sweep re-applies the normal sweep range
         return {"ok": True, "driver": driver, "band_hz": list(band), "levels": results,
                 "spl_calibrated": cfg.mic_sensitivity_dbfs is not None}
 

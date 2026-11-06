@@ -2,7 +2,7 @@
 Mac voice never uses REW's interface."""
 
 
-from test_speaker_capture import _rig
+from conftest import _rig
 
 from rewdio.dashboard.state import speaker_view
 from rewdio.engine.turntable import angles_for

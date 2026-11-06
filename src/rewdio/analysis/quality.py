@@ -67,5 +67,6 @@ def repeatability_db(a: Response, b: Response, cfg: SystemConfig) -> float:
     return float(np.std(d - np.mean(d)))
 
 
-def blocking(findings: list[Finding]) -> list[Finding]:
-    return [f for f in findings if f.level == "critical"]
+def critical(findings: list[dict]) -> list[dict]:
+    """The findings (as stored on a measurement record) that block using the sweep."""
+    return [f for f in findings if f.get("level") == "critical"]

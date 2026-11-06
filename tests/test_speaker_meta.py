@@ -3,10 +3,10 @@
 import json
 
 import pytest
+from conftest import _rig, _run
 
 from rewdio.engine.speaker import points_from
 from rewdio.engine.speaker_meta import PRESETS, AnglePlan, Environment, Geometry, set_folder
-from test_speaker_capture import _rig, _run
 
 
 def test_mic_from_distance_and_heights_lands_in_the_frame():

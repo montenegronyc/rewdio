@@ -75,7 +75,7 @@ across units. Writes and mutes go to the right unit, the room calibration aligns
 across units like any other channels, and `rig_selftest` checks each unit. Feed both units the same
 signal.
 
-### SoundSible handoff (manifest `rewdio.speaker-session/2`)
+### SoundSible handoff (manifest `rewdio.speaker-session/3`)
 
 The final crossover is passive, so SoundSible also needs impedance and distortion, and enough
 geometry to simulate the exact setup. Agreed on the `inbox` branch (`DECISIONS.md`):
@@ -102,6 +102,10 @@ geometry to simulate the exact setup. Agreed on the `inbox` branch (`DECISIONS.m
   (`valid_band_hz`), beside the 1/T floor. The ground bounce is checked against the gate.
 - `export_frd(root=...)` writes `<root>/measurements/<date>_<site>_<variant>/`: the manifest at the
   top, `frd/<driver>/`, `zma/`, `distortion/`.
+- `skipped` lists the planned angles given up with `speaker_step(skip=true)`: they have no FRDs (an
+  additive field, schema unchanged).
+- The distortion level search keeps the driver's loudest point 3 dB under REW's SPL abort limit, so a
+  driver with a peak far above its `ref_hz` reading stops short of the target: `reached: false`.
 
 ## Production QA (passive towers)
 

@@ -41,12 +41,20 @@ class ExportMixin:
         d = json.loads((self.s.dir / "data" / f"{mid}.raw.json").read_text())  # sets saved before
         return np.asarray(d["data"], float), float(d["fs"]), float(d["t0"])
 
-    def _snapshot(self, mid: str, driver: str):
-        rec = next(m for m in self.s.measurements if m.id == mid)
-        return rec.snapshot.get(driver).model_copy(deep=True)
-
-    def _protection(self, mid: str, driver: str) -> list[XoverFilter]:
-        return [f for f in (self._snapshot(mid, driver).crossover or []) if f.protect]
+    def _driver_alone(self, mid: str, driver: str, freqs: np.ndarray,
+                      h: np.ndarray) -> tuple[np.ndarray, list[XoverFilter], int | None]:
+        """Take out everything the DSP output added to a raw or near-field capture, from the state recorded with it:
+        gain, delay, polarity and PEQ exactly, the protection filter down to its floor. Returns the driver alone,
+        the protection filters divided out, and the first bin where they are fully corrected."""
+        fs_dsp = self.s.config.dsp_sample_rate
+        o = next(m for m in self.s.measurements if m.id == mid).snapshot.get(driver).model_copy(deep=True)
+        prot = [f for f in o.crossover or [] if f.protect]
+        o.crossover = None
+        h = h / o.transfer(freqs, fs_dsp)
+        first = None
+        if prot:
+            h, first = remove_protection(h, cascade_response(xover_sections(prot, fs_dsp), freqs, fs_dsp))
+        return h, prot, first
 
     def _gated_set(self, st: SpeakerState, gate: Gate, ppo: int, f_lo: float, f_hi: float,
                    t_ref_s: float | None, check: bool = True) -> tuple[np.ndarray, float, list[str], list[tuple]]:
@@ -54,7 +62,6 @@ class ExportMixin:
         [(capture, h, protection filters, protection note, gate-checked band or None)])."""
         if not st.captures:
             raise ValueError("nothing captured yet")
-        fs_dsp = self.s.config.dsp_sample_rate
         irs = {c.id: self._raw_ir(c.id) for c in st.captures}
         nyq = min(fs for _, fs, _ in irs.values()) / 2
         freqs = f_lo * 2.0 ** (np.arange(int(np.log2(min(f_hi, nyq * 0.95) / f_lo) * ppo) + 1) / ppo)
@@ -84,16 +91,12 @@ class ExportMixin:
             h = gated_response(ir, fs, freqs, t_ref_s, gate, t0_s=t0) * 10 ** ((ref_level - levels.get(c.id, ref_level))
                                                                                 / 20)
             band = stable_band(ir, fs, freqs, t_ref_s, gate, t0_s=t0) if check else None
-            # only raw captures have the protection filter divided out: xo and sum are exported exactly as played,
-            # so an audition whose protect filter is one of the target's own sections compares with nothing removed
-            prot = self._protection(c.id, c.driver) if c.mode == "raw" else []
-            prot_note = "none" if c.mode == "raw" else "included: exported exactly as it played"
-            if c.mode == "raw":  # the driver alone: take out everything the DSP output added
-                o = self._snapshot(c.id, c.driver)
-                o.crossover = None  # the protection filter is handled below, with its floor
-                h = h / o.transfer(freqs, fs_dsp)
+            # only raw captures have the DSP output divided out: xo and sum are exported exactly as played, so an
+            # audition whose protect filter is one of the target's own sections compares with nothing removed
+            prot, prot_note = [], "none" if c.mode == "raw" else "included: exported exactly as it played"
+            if c.mode == "raw":
+                h, prot, first = self._driver_alone(c.id, c.driver, freqs, h)
             if prot:
-                h, first = remove_protection(h, cascade_response(xover_sections(prot, fs_dsp), freqs, fs_dsp))
                 lo = float(freqs[first]) if first is not None else None
                 prot_note = (f"divided out ({', '.join(f.label() for f in prot)}); "
                              f"magnitude fully corrected above {lo:.0f} Hz" if lo else "divided out")
@@ -146,15 +149,9 @@ class ExportMixin:
                             "protection_removed": [f.model_dump() for f in prot]})
 
         nf_entries = []
-        fs_dsp = self.s.config.dsp_sample_rate
         for n in st.nearfield:
             r = self.s.response(n.id)
-            o = self._snapshot(n.id, n.driver)  # divide out the DSP output as for the far-field raw files
-            prot = [f for f in o.crossover or [] if f.protect]
-            o.crossover = None
-            h = r.h / o.transfer(r.freqs, fs_dsp)
-            if prot:
-                h, _ = remove_protection(h, cascade_response(xover_sections(prot, fs_dsp), r.freqs, fs_dsp))
+            h, _, _ = self._driver_alone(n.id, n.driver, r.freqs, r.h)  # as for the far-field raw files
             rel = Path("frd") / n.driver / f"{st.speaker}_{n.driver} {n.label}.frd"
             FrdFile(out / rel, r.freqs, h, [f"Rewdio near-field capture: {st.speaker} {n.driver} ({n.label})",
                                               f"REW measurement {n.id}; ungated; for VituixCAD's Merger (magnitude "
@@ -176,7 +173,7 @@ class ExportMixin:
         mpath = out / "rewdio_session.json"
         mpath.write_text(json.dumps(manifest, indent=1))
         st.exported_to = str(out)
-        self._save(st)
+        self._save(st, exported=True)
         return {"ok": True, "dir": str(out), "files": len(files), "nearfield": len(nf_entries), "zma": len(zma),
                 "distortion": len(dist), "manifest": str(mpath), "t_ref_ms": round(t_ref_s * 1000, 4),
                 "notes": notes}
@@ -241,6 +238,7 @@ class ExportMixin:
                             "indoor": env.indoor, "site": env.site, "started_et": env.started_et,
                             "soundsible_commit": env.soundsible_commit},
             "timing": {"reference": cfg.timing_mode.value, "common_delay_removed_ms": round(t_ref_s * 1000, 4)},
+            "skipped": [{"plane": q.plane, "angle": q.angle} for q in st.skipped],  # planned, given up: no FRDs
             "gate": {"pre_ms": gate.pre_ms, "gate_ms": gate.gate_ms, "taper_ms": gate.taper_ms,
                      "valid_from_hz": round(gate.valid_from_hz, 1),
                      "gate_check": {"extend_ms": [1.0, 2.0], "tolerance_db": 0.5, "smoothing": "1/12 oct",

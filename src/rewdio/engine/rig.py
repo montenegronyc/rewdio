@@ -103,10 +103,16 @@ class Rig:
         await self._commit(self._copy(), roles, include_peq=include_peq)
 
     async def assert_baseline(self) -> None:
+        """The room channels back to the baseline (unmuted). A driver channel the session already knows keeps its
+        settings and mute: drivers belong to a speaker under measurement and are never reset by room work."""
         b = self.cfg.baseline
-        await self._commit(DspState(outputs={c.role: OutputState(gain_db=b.gain_db, delay_ms=b.delay_ms, invert=b.invert,
-                                                                 crossover=c.crossover)
-                                             for c in self.cfg.channels}))
+        new = self._copy()
+        for c in self.cfg.channels:
+            if c.kind == ChannelKind.DRIVER and c.role in self.s.dsp.outputs:
+                continue
+            new.outputs[c.role] = OutputState(gain_db=b.gain_db, delay_ms=b.delay_ms, invert=b.invert,
+                                              crossover=c.crossover)
+        await self._commit(new)
 
     async def apply(self, state: DspState, listen: bool = False) -> None:
         """Write `state` to every channel (clamped). listen=True unmutes everything in the same write."""
@@ -139,9 +145,7 @@ class Rig:
     async def set_crossover(self, role: str, filters: list[XoverFilter] | None = None, raw: bool = False) -> OutputState:
         """Write a channel's crossover: `filters`, else its configured crossover. raw=True keeps only the
         protection filters, for capturing the driver itself. Protection filters can never be dropped."""
-        ch = self.cfg.channel(role)
-        if ch.crossover is None:
-            raise ValueError(f"{role} has no `crossover` in the config, so Rewdio does not manage its crossover")
+        ch = self._managed(role)
         want = list(filters if filters is not None else ch.crossover)
         if raw:
             want = [f for f in want if f.protect]
@@ -150,25 +154,46 @@ class Rig:
         await self._commit(new, [role])
         return self.s.dsp.get(role)
 
+    def _managed(self, role: str):
+        ch = self.cfg.channel(role)
+        if ch.crossover is None:
+            raise ValueError(f"{role} has no `crossover` in the config, so Rewdio does not manage its crossover")
+        return ch
+
     async def set_crossovers(self, roles: list[str], raw: bool) -> None:
         """Every role's configured crossover (raw=True: protection filters only), in ONE write."""
         new = self._copy()
         for r in roles:
-            ch = self.cfg.channel(r)
-            if ch.crossover is None:
-                raise ValueError(f"{r} has no `crossover` in the config, so Rewdio does not manage its crossover")
+            ch = self._managed(r)
             new.get(r).crossover = [f for f in ch.crossover if f.protect] if raw else list(ch.crossover)
         await self._commit(new, roles)
 
-    async def solo(self, roles: list[str]) -> None:
-        """Unmute exactly `roles`. Always sends the whole mute vector: never trust that a mute already stuck."""
+    def mutes(self) -> dict[str, bool]:
+        return {c.role: self.s.dsp.get(c.role).mute for c in self.cfg.channels}
+
+    async def set_mutes(self, mutes: dict[str, bool]) -> None:
+        """Mute state per role (roles not given keep theirs). Always sends the whole mute vector: never trust that
+        a mute already stuck."""
         new = self._copy()
         for c in self.cfg.channels:
-            new.get(c.role).mute = c.role not in roles
+            if c.role in mutes:
+                new.get(c.role).mute = bool(mutes[c.role])
         await self._commit(new, mute_only=True)
 
+    async def solo(self, roles: list[str]) -> None:
+        """Unmute exactly `roles` (none: everything muted)."""
+        await self.set_mutes({c.role: c.role not in roles for c in self.cfg.channels})
+
+    async def unmute(self, roles: list[str]) -> None:
+        """Unmute `roles`; every other channel keeps its mute."""
+        await self.set_mutes({r: False for r in roles})
+
+    async def unmute_room(self) -> None:
+        """Back to listening: the room system unmuted, a speaker under measurement left as it is."""
+        await self.unmute([c.role for c in self.cfg.room_channels])
+
     async def unmute_all(self) -> None:
-        await self.solo([c.role for c in self.cfg.channels])
+        await self.unmute([c.role for c in self.cfg.channels])
 
     async def nudge_delay(self, role: str, extra_ms: float) -> None:
         new = self._copy()
@@ -206,8 +231,11 @@ class Rig:
         self.level_dbfs = round(max(s.min_level_dbfs, min(s.max_level_dbfs, dbfs)), 1)
         await self.rew.set_level(self.level_dbfs)
 
-    async def measure(self, roles: list[str], kind: str, position: str, title: str | None = None,
-                      **extra) -> tuple[MeasurementRecord, Response]:
+    async def route(self, roles: list[str]) -> None:
+        """Before anything plays: REW ready, at this rig's level, out of the right REW output, only `roles`
+        unmuted. Every sweep or generator signal goes through here, Rewdio's own or REW's impedance sweep."""
+        if not roles:
+            raise ValueError("name at least one channel: a sweep with everything muted measures nothing")
         if not self._rew_ready:  # e.g. resumed after a restart: REW may have forgotten everything
             await self.prepare_rew()
         await self.rew.set_level(self.level_dbfs)  # the level each record is labelled with is the level played
@@ -215,6 +243,10 @@ class Rig:
         out_ch = {self.cfg.channel(r).rew_output_channel for r in roles}
         if out_ch != {None}:  # per-speaker REW outputs are configured (validated: all channels or none)
             await self.rew.set_output_channel(out_ch.pop() if len(out_ch) == 1 else self.cfg.rew_output_all)
+
+    async def measure(self, roles: list[str], kind: str, position: str, title: str | None = None,
+                      **extra) -> tuple[MeasurementRecord, Response]:
+        await self.route(roles)
         title = title or f"{'+'.join(roles)} @{position} ({kind}, pass {self.s.workflow.pass_no})"
         summary = await self.rew.sweep(title, notes=f"rewdio {kind}")
         spec = await self.rew.frequency_response(summary["uuid"], ppo=self.cfg.analysis_ppo, smoothing="None")

@@ -1,14 +1,10 @@
 """The day-one hardware self-test, against the simulator: it passes on a working rig and catches a DSP
 that silently drops writes."""
 
+from conftest import _rig
+
 from rewdio.config import TimingMode
 from rewdio.engine import selftest
-from test_speaker_capture import _rig as _speaker_rig
-
-
-def _rig(rt):
-    _speaker_rig(rt)
-    rt.session.config.timing_mode = TimingMode.LOOPBACK  # speaker work needs absolute phase
 
 
 async def test_selftest_passes_on_a_working_rig(sim_runtime):
@@ -52,7 +48,7 @@ async def test_selftest_catches_a_dsp_that_drops_delay_and_crossover_writes(sim_
 
 async def test_selftest_without_loopback_says_why_phase_checks_are_skipped(sim_runtime):
     rt = sim_runtime()
-    _speaker_rig(rt)
+    _rig(rt)
     rt.session.config.timing_mode = TimingMode.SUM_FIT  # no absolute timing
     await rt.rig.assert_baseline()
     rep = await selftest.run(rt.rig, "LW")

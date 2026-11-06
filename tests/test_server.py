@@ -34,3 +34,15 @@ async def test_tools_drive_a_full_calibration(tmp_path, monkeypatch):
         m = data(await c.call_tool("measure", {"roles": ["SUB1"]}))
         assert m["summary"]["level_db"]["sub_band"] > 40
     server._rt = None
+
+
+async def test_a_refusal_reaches_claude_with_its_reason(tmp_path, monkeypatch):
+    monkeypatch.setenv("REWDIO_SIMULATE", "1")
+    monkeypatch.setenv("REWDIO_HOME", str(tmp_path))
+    import rewdio.server as server
+    server._rt = None
+    async with Client(server.mcp) as c:
+        res = await c.call_tool("set_channel", {"role": "NOPE", "gain_db": -3})
+        assert res.is_error and "NOPE" in res.content[0].text, res
+        res = await c.call_tool("speaker_step", {})
+        assert res.is_error and "speaker_plan" in res.content[0].text, res

@@ -30,6 +30,11 @@ def folder(s: Session) -> Path:
     return p
 
 
+def _room(s: Session) -> list[str]:
+    """Setups are the room system's: driver channels belong to a speaker under measurement."""
+    return [c.role for c in s.config.room_channels]
+
+
 def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:48] or "setup"
 
@@ -44,7 +49,7 @@ def _matching_sweep(s: Session):
 
     "listening" sweeps are full-system sweeps taken just to document a setup; the autopilot never reuses them.
     """
-    roles = [c.role for c in s.config.channels]
+    roles = _room(s)
     now = _sound(s.dsp, roles)
     seat = s.config.mic_positions[0]
     sweeps = sorted(s.find(kind="system", position=seat) + s.find(kind="listening", position=seat), key=lambda m: m.created)
@@ -72,7 +77,7 @@ def _read(p: Path) -> dict:
 
 
 def list_all(s: Session) -> list[dict]:
-    roles = [c.role for c in s.config.channels]
+    roles = _room(s)
     now = _sound(s.dsp, roles)
     out = []
     for p in sorted(folder(s).glob("*.json"), reverse=True):
@@ -89,8 +94,9 @@ def save(s: Session, name: str, note: str | None = None, source: str = "manual")
     name = " ".join(str(name).split())[:80]
     if not name:
         return {"ok": False, "message": "give the setup a name"}
-    for c in s.config.channels:
-        s.dsp.get(c.role)  # every channel explicit, even ones never touched
+    if source == "manual" and any(d["name"].lower() == name.lower() for d in list_all(s)):
+        return {"ok": False, "message": f"a setup called {name!r} exists: pick another name, or delete that one"}
+    room = DspState(outputs={r: s.dsp.get(r).model_copy(deep=True) for r in _room(s)})  # every room channel explicit
     now = datetime.now().astimezone()
     stem = f"{now:%Y-%m-%d_%H%M}_{_slug(name)}"
     p = folder(s) / f"{stem}.json"
@@ -98,7 +104,7 @@ def save(s: Session, name: str, note: str | None = None, source: str = "manual")
         stem = f"{now:%Y-%m-%d_%H%M%S}_{_slug(name)}"
         p = folder(s) / f"{stem}.json"
     d = {"name": name, "created": now.isoformat(timespec="seconds"), "note": note, "source": source,
-         "pass": s.workflow.pass_no, "dsp": s.dsp.model_dump(mode="json"), "curve": None, "bass_std_db": None}
+         "pass": s.workflow.pass_no, "dsp": room.model_dump(mode="json"), "curve": None, "bass_std_db": None}
     rec = _matching_sweep(s)
     if rec is not None:
         d["curve"], d["bass_std_db"] = _thumb(s, rec)
@@ -128,11 +134,13 @@ async def recall(rig, ref: str) -> dict:
     d = find(rig.s, ref)
     if d is None:
         return {"ok": False, "message": f"no setup called {ref!r}"}
-    state = DspState.model_validate(d["dsp"])
-    missing = [c.role for c in rig.cfg.channels if c.role not in state.outputs]
+    saved = DspState.model_validate(d["dsp"])
+    room = _room(rig.s)
+    missing = [r for r in room if r not in saved.outputs]
     if missing:
         return {"ok": False, "message": f"setup {d['name']!r} has no settings for {', '.join(missing)}"}
-    await rig.apply(state, listen=True)
+    # older setups also hold driver channels: those are never recalled over a speaker under measurement
+    await rig.apply(DspState(outputs={r: saved.outputs[r] for r in room}), listen=True)
     return {"ok": True, "id": d["id"], "name": d["name"]}
 
 
@@ -149,12 +157,11 @@ def rename(s: Session, sid: str, name: str) -> dict:
     name = " ".join(str(name).split())[:80]
     if p is None or not name:
         return {"ok": False, "message": "unknown setup or empty name"}
+    if any(d["name"].lower() == name.lower() and d["id"] != sid for d in list_all(s)):
+        return {"ok": False, "message": f"a setup called {name!r} exists"}
     d = json.loads(p.read_text())
     d["name"] = name
-    new = p.with_name(p.stem.rsplit("_", 1)[0] + f"_{_slug(name)}.json")
-    if new != p and new.exists():
-        return {"ok": False, "message": "a setup with that name was saved in the same minute"}
-    new.write_text(json.dumps(d, indent=1))
-    if new != p:
-        p.unlink()
-    return {"ok": True, "id": new.stem}
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(d, indent=1))
+    tmp.replace(p)  # the id stays: recall and delete by id keep working
+    return {"ok": True, "id": sid}

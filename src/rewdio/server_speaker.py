@@ -163,7 +163,7 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
     async def export_frd(out_dir: str | None = None, gate_ms: float = 5.0, pre_ms: float = 2.0,
                          ppo: int = 48, root: str | None = None) -> dict:
         """Write the captured set: <root>/measurements/<date>_<site>_<variant>/ (root defaults to REWDIO_HOME;
-        out_dir overrides the whole path) with rewdio_session.json (schema rewdio.speaker-session/2) at the
+        out_dir overrides the whole path) with rewdio_session.json (schema rewdio.speaker-session/3) at the
         top, frd/<driver>/ ('<speaker>_<driver> hor 30.frd'), zma/ and distortion/. One common delay is removed
         from every file, so in VituixCAD set every driver's X/Y/Z offset to 0. gate_ms: up to the first
         reflection; each file also reports the band that survives moving the gate end +1/+2 ms."""
@@ -187,15 +187,17 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
 
     @mcp.tool()
     async def speaker_update(geometry: dict | None = None, environment: dict | None = None, serial: str | None = None,
-                             reference: bool | None = None, parts: dict | None = None) -> dict:
+                             reference: bool | None = None, parts: dict | None = None, variant: str | None = None,
+                             distance_m: float | None = None) -> dict:
         """Change the open capture set's metadata without touching its captures: geometry and environment fields
-        (merged in), the tower's serial, whether this set is THE reference every later tower is held to, and
+        (merged in), the variant name, the mic distance (a correction: the sweeps already taken stay as they
+        are), the tower's serial, whether this set is THE reference every later tower is held to, and
         measured part values from the LCR meter (e.g. {"L1_mH": 1.52, "C1_uF": 22.1}). Export again afterwards."""
         rt = runtime()
         if rt.busy:  # a running sweep holds its own copy of the set and would overwrite this when it saves
-            return BUSY
-        st = rt.speaker.update(geometry, environment, serial, reference, parts)
-        return {"ok": True, "serial": st.serial, "reference": st.reference, "parts": st.parts,
+            return {**BUSY, "message": rt.busy_message()}
+        st = rt.speaker.update(geometry, environment, serial, reference, parts, variant, distance_m)
+        return {"ok": True, "variant": st.variant, "distance_m": st.distance_m, "serial": st.serial, "reference": st.reference, "parts": st.parts,
                 "not_recorded": st.geometry.missing() + st.environment.missing()}
 
     @mcp.tool()
