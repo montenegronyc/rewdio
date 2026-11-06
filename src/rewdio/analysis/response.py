@@ -68,12 +68,6 @@ def _check_grid(a: Response, b: Response) -> None:
         raise ValueError("responses are on different frequency grids")
 
 
-def power_sum(responses: list[Response]) -> Response:
-    """Incoherent sum (phase-free), for magnitude-only estimates."""
-    p = sum(np.abs(r.h) ** 2 for r in responses)
-    return Response(responses[0].freqs, np.sqrt(p).astype(complex), has_phase=False)
-
-
 def spatial_average_db(responses: list[Response]) -> np.ndarray:
     """Power average across mic positions, in dB."""
     p = np.mean([np.abs(r.h) ** 2 for r in responses], axis=0)

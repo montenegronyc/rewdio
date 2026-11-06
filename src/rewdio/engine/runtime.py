@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 
 from ..minidsp.client import MiniDSPClient
 from ..rew.client import RewClient
@@ -22,6 +23,7 @@ class Runtime:
         self.fake_rew = self.fake_dsp = None
         self.lock = asyncio.Lock()  # one driver at a time: Claude's tool calls and the phone share it
         self._task: asyncio.Task | None = None
+        self._soak: tuple[str, float] | None = None  # (driver, end time) of a soak running in the background
         self.last_report: dict | None = None
         self._connect()
 
@@ -54,6 +56,14 @@ class Runtime:
     @property
     def busy(self) -> bool:
         return self.lock.locked()
+
+    def busy_message(self) -> str:
+        soak = self._soak
+        if soak and self._task is not None and not self._task.done():
+            left = max(0.0, (soak[1] - time.time()) / 60)
+            return (f"a soak is playing pink noise through {soak[0]} ({left:.0f} min left); the rig is free when it "
+                    "finishes")
+        return "a calibration step is running (from the phone or another call); try again when it finishes"
 
     async def step(self, max_sweeps: int | None = None) -> dict:
         async with self.lock:
@@ -133,8 +143,11 @@ class Runtime:
     def start_soak(self, driver: str, minutes: float, spl_db: float) -> dict:
         """Run a soak in the background (it can take an hour); the result lands in the capture set."""
         if self.busy or (self._task is not None and not self._task.done()):
-            return {"ok": False, "message": "the rig is busy"}
-        level = self.speaker.soak_level(driver, spl_db)  # refuse bad requests now, not an hour later
+            return {"ok": False, "message": self.busy_message()}
+        if not 0 < minutes <= 240:  # refuse bad requests now, not in a background task nobody reads
+            raise ValueError("minutes must be between 0 and 240")
+        level = self.speaker.soak_level(driver, spl_db)
+        self._soak = (driver, time.time() + minutes * 60)
 
         async def go():
             async with self.lock:
@@ -160,6 +173,9 @@ class Runtime:
 
     def set_cell(self, code: str, enabled: bool) -> dict:
         crawl = self.session.workflow.crawl
+        codes = {c["code"] for c in self.autopilot.grid_cells()}
+        if code not in codes:
+            return {"ok": False, "message": f"no crawl cell {code!r}; cells are {', '.join(sorted(codes))}"}
         if code in crawl.get("measured", {}):
             return {"ok": False, "message": f"{code} is already measured"}
         ex = set(crawl.get("excluded", []))

@@ -5,13 +5,13 @@ import json
 
 import numpy as np
 import pytest
+from conftest import LH, LW, _delay, _rig, _run
 from pydantic import ValidationError
 
 from rewdio.analysis.frd import read_frd
 from rewdio.engine.speaker import angles_for
 from rewdio.minidsp.biquad import cascade_response, design
 from rewdio.minidsp.state import XoverFilter, xover_sections
-from test_speaker_capture import LH, LW, _delay, _rig, _run
 
 FS = 96000
 

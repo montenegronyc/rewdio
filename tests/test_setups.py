@@ -39,7 +39,8 @@ async def test_ab_between_calibrated_and_flat(sim_runtime):
     assert _on_device(rt, "SUB1").gain_db == 0.0 and not _on_device(rt, "SUB1").peq
 
     r = dsp_setups.rename(s, flat["id"], "Flat, no EQ")
-    assert r["ok"] and r["id"].endswith("_flat-no-eq")
+    assert r["ok"] and r["id"] == flat["id"]  # the id stays, so recall and delete by id keep working
+    assert not dsp_setups.save(s, "flat, no eq")["ok"]  # names are unique
     assert dsp_setups.find(s, "Flat, no EQ")["id"] == r["id"]
     assert dsp_setups.delete(s, r["id"])["ok"]
     assert [d["name"] for d in dsp_setups.list_all(s)] == ["Calibrated"]

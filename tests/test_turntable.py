@@ -2,10 +2,10 @@
 
 import numpy as np
 import pytest
+from conftest import _rig, _run
 
 from rewdio.engine.speaker_meta import PRESETS
 from rewdio.engine.turntable import angles_for, move, points_from, prompt
-from test_speaker_capture import _rig, _run
 
 
 def _moves(pts):

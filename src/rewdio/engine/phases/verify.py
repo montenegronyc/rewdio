@@ -17,7 +17,7 @@ from .base import PhaseBase
 
 def state_summary(cfg, st: DspState) -> dict:
     out = {}
-    for c in cfg.channels:
+    for c in cfg.room_channels:
         o = st.get(c.role)
         out[c.role] = {"gain_db": o.gain_db, "delay_ms": o.delay_ms, "invert": o.invert,
                        "peq": [f"{p.freq_hz:.0f}Hz {p.gain_db:+.1f}dB Q{p.q}" for _, p in sorted(o.peq.items())]}
@@ -93,7 +93,7 @@ class SolveVerifyPhase(PhaseBase):
         return out
 
     async def _phase_verify(self, log) -> str:
-        roles = [c.role for c in self.cfg.channels]
+        roles = [c.role for c in self.cfg.room_channels]
         b = self.cfg.tuning.bands
         positions = list(self.cfg.mic_positions)
         if self.wf.mic_at in positions:  # start where the mic already is

@@ -64,7 +64,7 @@ class SetupPhase(PhaseBase):
         sw, gs, b = self.cfg.sweep, self.cfg.tuning.gain_staging, self.cfg.tuning.bands
         self._mic_to(self.cfg.mic_positions[0], "start")
         pos = self.wf.mic_at or "unknown"
-        mains = [c.role for c in self.cfg.mains] or [c.role for c in self.cfg.channels]
+        mains = [c.role for c in self.cfg.mains] or [c.role for c in self.cfg.room_channels]
         mid = None
         for _ in range(gs.max_steps):
             try:

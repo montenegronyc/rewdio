@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 
 from ...analysis.alignment import fit_relative_delay
-from ...analysis.quality import repeatability_db
+from ...analysis.quality import critical, repeatability_db
 from ...analysis.solver import Measured
 from ...config import ChannelKind, TimingMode
 from .base import PhaseBase
@@ -28,7 +28,7 @@ class BaselinePhase(PhaseBase):
         q = rec.extra.get("quality") or []
         for f in q:
             self.wf.quality.append({"measurement": rec.id, "roles": roles, "position": pos, **f})
-        crit = [f for f in q if f["level"] == "critical"]
+        crit = critical(q)
         if crit:
             self.s.measurements.remove(rec)  # never solve from a bad sweep
             self.s.save()
@@ -42,7 +42,7 @@ class BaselinePhase(PhaseBase):
 
     async def _phase_baseline(self, log) -> str:
         r = self.rig
-        roles = [c.role for c in self.cfg.channels]
+        roles = [c.role for c in self.cfg.room_channels]
         ref = self.cfg.timing_reference_channel
         positions = list(self.cfg.mic_positions)
         if any(self.s.dsp.get(rl).peq for rl in roles):
@@ -132,7 +132,7 @@ class BaselinePhase(PhaseBase):
         data: dict[str, dict[str, Measured]] = {}
         for pos in self.cfg.mic_positions:
             solos = {m.roles[0]: m for m in self.s.find(kind="solo", position=pos, pass_no=pass_no)}
-            if set(solos) != {c.role for c in self.cfg.channels}:
+            if set(solos) != {c.role for c in self.cfg.room_channels}:
                 raise RuntimeError(f"pass {pass_no} at {pos} is missing solo measurements")
 
             def load(rec):

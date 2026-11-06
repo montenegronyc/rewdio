@@ -25,6 +25,7 @@ from ..analysis.frd import arrival_s
 from ..config import TimingMode
 from ..minidsp.state import XoverFilter, change_transfer
 from ..rew.client import RewError
+from ..rew.codec import decode_floats
 from .rig import Rig
 
 DELAY_STEP_MS = 1.0
@@ -61,6 +62,7 @@ async def run(rig: Rig, driver: str, distance_m: float | None = None, impedance:
     cfg, s = rig.cfg, rig.s
     ch = cfg.channel(driver)
     checks: list[dict] = []
+    mutes, level = rig.mutes(), rig.level_dbfs
 
     # 1. the DSP unit(s)
     try:
@@ -101,7 +103,9 @@ async def run(rig: Rig, driver: str, distance_m: float | None = None, impedance:
         # 3. startTime and the arrival
         raw = await rig.rew.get(f"/measurements/{rec_a.id}/impulse-response", windowed="false", normalised="false")
         has_t0 = isinstance(raw, dict) and raw.get("startTime") is not None
-        ir, fs, t0 = await rig.rew.impulse_response_timed(rec_a.id)
+        ir = decode_floats(raw["data"])  # one fetch: the same payload impulse_response_timed decodes
+        fs = float(raw.get("sampleRate") or 1.0 / float(raw["sampleInterval"]))
+        t0 = float(raw.get("startTime") or 0.0)
         arr_ms = arrival_s(ir, fs, t0) * 1000
         detail = f"startTime {'present' if has_t0 else 'MISSING'}; first arrival {arr_ms:.2f} ms"
         ok = has_t0
@@ -146,7 +150,7 @@ async def run(rig: Rig, driver: str, distance_m: float | None = None, impedance:
         # 6. impedance over the API
         if impedance:
             try:
-                await rig.solo([driver])
+                await rig.route([driver])
                 summary = await rig.rew.sweep(f"{driver} selftest impedance", notes="rewdio selftest",
                                               command="Impedance")
                 await rig.rew.impedance(summary["uuid"])
@@ -158,12 +162,14 @@ async def run(rig: Rig, driver: str, distance_m: float | None = None, impedance:
             checks.append(_check("rew_impedance_api", None, "not run (pass impedance=true with the jig wired)"))
     except Exception as e:  # noqa: BLE001
         checks.append(_check("aborted", False, f"{type(e).__name__}: {e}"))
-    finally:  # put the output back exactly as it was
+    finally:  # put the output back exactly as it was, and every mute
+        rig.level_dbfs = level
         o = rig.s.dsp.get(driver)
         if o.delay_ms != base.delay_ms:
             await rig.set_channel(driver, delay_ms=base.delay_ms)
         if ch.crossover is not None and o.crossover != base.crossover:
             await rig.set_crossover(driver, filters=base.crossover)
+        await rig.set_mutes(mutes)  # last: nothing plays until its crossover is back
     return _finish(s, checks)
 
 

@@ -4,10 +4,10 @@ import json
 
 import numpy as np
 import pytest
+from conftest import _rig, _run
 
 from rewdio.engine.speaker import angles_for
 from rewdio.rew.client import RewError
-from test_speaker_capture import _rig, _run
 
 
 async def _set(sim_runtime):

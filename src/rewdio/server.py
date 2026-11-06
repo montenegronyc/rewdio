@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import os
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
+from . import settings
 from .analysis.metrics import summarize
 from .dashboard.app import serve_in_background
 from .engine import dsp_setups, setup
@@ -61,7 +64,27 @@ async def lifespan(_server):
         yield {}
 
 
-mcp = MCPServer("rewdio", instructions=INSTRUCTIONS, lifespan=lifespan)
+class RewdioServer(MCPServer):
+    """Every failure a tool raises reaches Claude with its message. The SDK shows only "Error executing tool X"
+    for anything but ToolError, and Rewdio's refusals (ValueError, RewError, ...) carry the fix in their text."""
+
+    def tool(self, *args, **kwargs):
+        register = super().tool(*args, **kwargs)
+
+        def wrap(fn):
+            @functools.wraps(fn)
+            async def tool(*a, **kw):
+                try:
+                    return await fn(*a, **kw)
+                except ToolError:
+                    raise
+                except Exception as e:  # reported to the caller, not swallowed
+                    raise ToolError(f"{type(e).__name__}: {e}") from e
+            return register(tool)
+        return wrap
+
+
+mcp = RewdioServer("rewdio", instructions=INSTRUCTIONS, lifespan=lifespan)
 
 
 def runtime() -> Runtime:
@@ -92,6 +115,7 @@ BUSY = {"ok": False, "message": "a calibration step is running (from the phone o
 async def exclusive(rt):
     """Manual tools must not interleave with a running autopilot step: refuse rather than wait."""
     if rt.busy:
+        BUSY["message"] = rt.busy_message()  # read by the `return BUSY` right after
         yield False
         return
     async with rt.lock:
@@ -158,7 +182,7 @@ async def save_settings(updates: dict) -> dict:
 @mcp.tool()
 async def test_setup(checks: list[str] | None = None) -> dict:
     """Check the setup: 'rew' and 'minidsp' connections, 'mic_cal' and 'house_curve' files (default: all)."""
-    return _clean(await setup.check(runtime(), checks or ["rew", "minidsp", "mic_cal", "house_curve"]))
+    return _clean(await setup.check(runtime(), checks))
 
 
 @mcp.tool()
@@ -182,7 +206,10 @@ async def autopilot_step(max_sweeps: int | None = None) -> dict:
 async def confirm_user_action(key: str | None = None, x: float | None = None, y: float | None = None,
                               z: float | None = None, note: str | None = None) -> dict:
     """Tell the autopilot the user finished the pending physical task. Pass x/y/z (metres) if known."""
-    xyz = [x, y, z] if None not in (x, y, z) else None
+    given = [v is not None for v in (x, y, z)]
+    if any(given) and not all(given):
+        raise ValueError("give all of x, y and z (metres), or none: a partial position cannot be placed")
+    xyz = [x, y, z] if all(given) else None
     return _clean(runtime().confirm(key, xyz, note))
 
 
@@ -291,8 +318,12 @@ async def save_setup(name: str, note: str | None = None, measure_first: bool = F
         async with exclusive(rt) as ok:
             if not ok:
                 return BUSY
-            await rt.rig.measure([c.role for c in rt.session.config.channels], "listening", rt.session.config.mic_positions[0])
-            await rt.rig.unmute_all()
+            mutes = rt.rig.mutes()
+            try:
+                await rt.rig.measure([c.role for c in rt.session.config.room_channels], "listening",
+                                     rt.session.config.mic_positions[0])
+            finally:
+                await rt.rig.set_mutes(mutes)
     d = dsp_setups.save(rt.session, name, note)
     return {k: d.get(k) for k in ("ok", "id", "name", "created", "bass_std_db", "message")}
 
@@ -323,6 +354,9 @@ async def get_dsp_state() -> dict:
 async def set_mic_calibration(cal_file_path: str, sensitivity_dbfs_at_94db: float | None = None) -> dict:
     """Save the SoundID Reference (or any) mic calibration file in settings and load it into REW."""
     rt = runtime()
+    chk = settings.file_check(cal_file_path)
+    if not chk["ok"]:
+        return {"ok": False, "message": f"not saved: {chk['message']}"}
     res = await setup.save(rt, {"mic_cal_path": cal_file_path, "mic_sensitivity_dbfs": sensitivity_dbfs_at_94db})
     if not res.get("ok"):
         return res

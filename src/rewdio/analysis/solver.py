@@ -97,7 +97,7 @@ class _Solve:
         self.tgt = target_db(self.freqs, cfg.target)
         self.notes: list[str] = []
         self.st = DspState.model_validate(current.model_dump())
-        for c in cfg.channels:
+        for c in cfg.room_channels:
             o = self.st.get(c.role)
             o.mute = False
             o.peq = {}  # managed PEQ is re-derived from scratch (or left off) on every solve
@@ -235,7 +235,7 @@ class _Solve:
         """Don't touch the DSP for changes too small to matter."""
         rt = self.t.restraint
         kept = []
-        for c in self.cfg.channels:
+        for c in self.cfg.room_channels:
             new, cur = self.st.get(c.role), current.get(c.role)
             if new.gain_db != cur.gain_db and abs(new.gain_db - cur.gain_db) < rt.gain_deadband_db:
                 new.gain_db = cur.gain_db
@@ -247,7 +247,7 @@ class _Solve:
             self.notes.append("left unchanged (difference below deadband): " + ", ".join(kept))
 
     def normalize_delays(self) -> None:
-        roles = [c.role for c in self.cfg.channels]
+        roles = [c.role for c in self.cfg.room_channels]
         lo = min(self.st.get(r).delay_ms for r in roles)
         for r in roles:
             o = self.st.get(r)
@@ -337,13 +337,13 @@ def converged(cfg: SystemConfig, metrics: dict) -> tuple[bool, list[str]]:
 
 def footprint(cfg: SystemConfig, st: DspState) -> dict:
     """How much DSP the solution uses, so 'light' is visible."""
-    filters = [(c.role, p) for c in cfg.channels for p in st.get(c.role).peq.values()]
+    filters = [(c.role, p) for c in cfg.room_channels for p in st.get(c.role).peq.values()]
     return {"filters": len(filters), "total_abs_eq_db": round(sum(abs(p.gain_db) for _, p in filters), 1),
             "max_cut_db": round(min([p.gain_db for _, p in filters] or [0.0]), 1),
             "max_boost_db": round(max([p.gain_db for _, p in filters] or [0.0]), 1),
-            "inverted": [c.role for c in cfg.channels if st.get(c.role).invert],
-            "gain_range_db": [round(min(st.get(c.role).gain_db for c in cfg.channels), 2),
-                              round(max(st.get(c.role).gain_db for c in cfg.channels), 2)]}
+            "inverted": [c.role for c in cfg.room_channels if st.get(c.role).invert],
+            "gain_range_db": [round(min(st.get(c.role).gain_db for c in cfg.room_channels), 2),
+                              round(max(st.get(c.role).gain_db for c in cfg.room_channels), 2)]}
 
 
 def peq_band_worst_peak(cfg: SystemConfig, predicted: dict[str, Response]) -> float:
