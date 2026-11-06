@@ -99,7 +99,11 @@ def routes(runtime: Callable) -> list[Route]:
         if not authed(req):
             return deny()
         body = await req.json() if await req.body() else {}
-        return JSONResponse(json.loads(json.dumps(runtime().speaker_ready(body.get("key")), default=str)))
+        try:
+            res = runtime().speaker_ready(body.get("key"))
+        except ValueError as e:  # e.g. no capture set planned: say so on the phone, not a 500
+            return JSONResponse({"ok": False, "message": str(e)}, status_code=409)
+        return JSONResponse(json.loads(json.dumps(res, default=str)))
 
     async def step(req):
         if not authed(req):

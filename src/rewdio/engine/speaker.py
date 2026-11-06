@@ -108,7 +108,10 @@ class SpeakerCapture(PassiveExtras, ProductionExtras, ExportMixin):
         p = self.s.dir / self.FILE
         return SpeakerState.model_validate_json(p.read_text()) if p.exists() else None
 
-    def _save(self, st: SpeakerState) -> None:
+    def _save(self, st: SpeakerState, exported: bool = False) -> None:
+        """Any change after an export makes the export stale, so a new plan will not drop it unasked."""
+        if not exported:
+            st.exported_to = None
         tmp = self.s.dir / (self.FILE + ".tmp")
         tmp.write_text(st.model_dump_json(indent=1))
         tmp.replace(self.s.dir / self.FILE)
@@ -168,9 +171,21 @@ class SpeakerCapture(PassiveExtras, ProductionExtras, ExportMixin):
         return st
 
     def update(self, geometry: dict | None = None, environment: dict | None = None, serial: str | None = None,
-               reference: bool | None = None, parts: dict | None = None) -> SpeakerState:
+               reference: bool | None = None, parts: dict | None = None, variant: str | None = None,
+               distance_m: float | None = None) -> SpeakerState:
         """Change a set's metadata without touching its captures (fields given are merged in)."""
         st = self._require()
+        geometry = dict(geometry or {})
+        if "mic_distance_m" in geometry:  # as the manifest spells it
+            distance_m = geometry.pop("mic_distance_m")
+        if distance_m is not None:
+            if not 0 < distance_m <= 20:
+                raise ValueError("distance_m is the mic distance in metres (0..20)")
+            st.distance_m = float(distance_m)
+        if variant is not None:
+            if not variant.strip():
+                raise ValueError("variant needs a name")
+            st.variant = variant.strip()
         if geometry:
             st.geometry = Geometry.model_validate({**st.geometry.model_dump(), **geometry})
         if environment:

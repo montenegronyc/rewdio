@@ -187,15 +187,17 @@ def register(mcp, runtime, exclusive, BUSY, _clean) -> None:  # noqa: N803 - the
 
     @mcp.tool()
     async def speaker_update(geometry: dict | None = None, environment: dict | None = None, serial: str | None = None,
-                             reference: bool | None = None, parts: dict | None = None) -> dict:
+                             reference: bool | None = None, parts: dict | None = None, variant: str | None = None,
+                             distance_m: float | None = None) -> dict:
         """Change the open capture set's metadata without touching its captures: geometry and environment fields
-        (merged in), the tower's serial, whether this set is THE reference every later tower is held to, and
+        (merged in), the variant name, the mic distance (a correction: the sweeps already taken stay as they
+        are), the tower's serial, whether this set is THE reference every later tower is held to, and
         measured part values from the LCR meter (e.g. {"L1_mH": 1.52, "C1_uF": 22.1}). Export again afterwards."""
         rt = runtime()
         if rt.busy:  # a running sweep holds its own copy of the set and would overwrite this when it saves
-            return BUSY
-        st = rt.speaker.update(geometry, environment, serial, reference, parts)
-        return {"ok": True, "serial": st.serial, "reference": st.reference, "parts": st.parts,
+            return {**BUSY, "message": rt.busy_message()}
+        st = rt.speaker.update(geometry, environment, serial, reference, parts, variant, distance_m)
+        return {"ok": True, "variant": st.variant, "distance_m": st.distance_m, "serial": st.serial, "reference": st.reference, "parts": st.parts,
                 "not_recorded": st.geometry.missing() + st.environment.missing()}
 
     @mcp.tool()

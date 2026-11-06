@@ -67,6 +67,9 @@ class PassiveExtras:
         REW refuses that over its API, take it in REW's GUI and pass `rew_measurement_id` to import it.
         cap_in_circuit defaults to False: the passive design wants the driver alone."""
         st = self._require_driver(driver)
+        if label == "post_soak" and not any(k.driver == driver and k.completed for k in st.soaks):
+            raise ValueError(f"no completed soak on {driver} in this set: run speaker_soak first (a soak stopped early "
+                             "does not count)")
         rew, source = self.rig.rew, "imported"
         if rew_measurement_id is None:
             source = "api"

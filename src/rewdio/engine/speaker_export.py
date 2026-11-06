@@ -173,7 +173,7 @@ class ExportMixin:
         mpath = out / "rewdio_session.json"
         mpath.write_text(json.dumps(manifest, indent=1))
         st.exported_to = str(out)
-        self._save(st)
+        self._save(st, exported=True)
         return {"ok": True, "dir": str(out), "files": len(files), "nearfield": len(nf_entries), "zma": len(zma),
                 "distortion": len(dist), "manifest": str(mpath), "t_ref_ms": round(t_ref_s * 1000, 4),
                 "notes": notes}

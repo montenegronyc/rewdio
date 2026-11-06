@@ -25,21 +25,32 @@ async def save(rt, updates: dict) -> dict:
     return {"ok": True, **(await status(rt))}
 
 
-async def check(rt, names: list[str]) -> dict:
+CHECKS = ("rew", "minidsp", "mic_cal", "house_curve")
+
+
+async def check(rt, names: list[str] | None) -> dict:
+    """Each named check (none named: all of them)."""
     cfg = rt.session.config
     out: dict = {}
-    for name in names:
+    for name in names or CHECKS:
         try:
             if name == "rew":
                 out[name] = {"ok": True, "message": f"REW {await rt.rew.version()} answering at {cfg.rew_url}"}
             elif name == "minidsp":
                 devs = await rt.dsp.devices()
-                out[name] = ({"ok": True, "message": f"found {devs[0].get('product_name')}"} if devs
-                             else {"ok": False, "message": "minidspd is running but sees no miniDSP"})
+                need = sorted(set(cfg.dsp_devices))  # every unit a channel is on, not just the first
+                missing = [d for d in need if d >= len(devs)]
+                found = ", ".join(f"{d}: {devs[d].get('product_name')}" for d in need if d < len(devs))
+                out[name] = ({"ok": False, "message": "minidspd is running but sees no miniDSP"} if not devs else
+                             {"ok": False, "message": f"found {found or 'none'}; the config also uses device(s) "
+                                                      f"{missing}, which minidspd does not see"} if missing else
+                             {"ok": True, "message": f"found {found}"})
             elif name == "mic_cal":
                 out[name] = settings.file_check(cfg.mic_cal_path)
             elif name == "house_curve":
                 out[name] = settings.file_check(cfg.target.house_curve_path)
+            else:
+                out[name] = {"ok": False, "message": f"unknown check {name!r}; use {', '.join(CHECKS)}"}
         except Exception as e:  # unreachable service: report, don't raise
             out[name] = {"ok": False, "message": str(e).split(". ")[0]}
     return out
