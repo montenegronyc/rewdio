@@ -387,8 +387,13 @@ class SystemConfig(_Strict):
         if any(per) and len(set(per)) > 1 and not self.rew_output_all:
             raise ValueError("channels use different REW outputs, so set rew_output_all (the REW output that plays "
                              "them all, used for combined and full-system sweeps)")
+        room = [c.role for c in self.room_channels]
         if self.timing_reference_channel not in roles:
-            raise ValueError(f"timing_reference_channel {self.timing_reference_channel!r} is not a channel")
+            raise ValueError(f"timing_reference_channel {self.timing_reference_channel!r} is not a channel"
+                             + (f"; use one of the room channels {room}" if room else ""))
+        if room and self.timing_reference_channel not in room:  # the room calibration times everything against it
+            raise ValueError(f"timing_reference_channel {self.timing_reference_channel!r} is a driver channel; the "
+                             f"room calibration needs a main or sub: one of {room}")
         if not self.mic_positions:
             raise ValueError("need at least one mic position")
         if self.balance.enabled and len(self.mains) >= 2 and not set(self.balance.pair) <= set(roles):

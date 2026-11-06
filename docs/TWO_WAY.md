@@ -133,6 +133,11 @@ Results go to `qa_report.json` and a `qa` block in the tower's manifest.
 (enough for LR4 plus a protection high-pass plus spare sections) and 10 PEQ, at 96 kHz. A 2-way uses
 2 of its 4 outputs.
 
+**The mule plus two subs on one 2x4HD** (the layout for the sub crawl): drivers on outputs 0-1, subs
+on 2-3, no mains channels. Set `timing_reference_channel` to a sub (e.g. `SUB1`); the config refuses a
+driver or a missing channel there. The room autopilot then crawls and calibrates the two subs and never
+sweeps the drivers. Sub-to-mains integration waits until mains exist on the miniDSP.
+
 **For the finished stereo 2-way + 2 subs (6 outputs): do not buy a Flex Eight.** minidsp-rs, which
 Rewdio drives the hardware through, has no Flex Eight support (its device probe knows the 2x4HD,
 Flex, Flex HTx, DDRC-24, DDRC-88, SHD, 4x10HD, 10x10HD, nanoDIGI and C-DSP 8x12 v2). Buying one would
