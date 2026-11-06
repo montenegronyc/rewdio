@@ -90,6 +90,20 @@ def linkwitz_riley4(kind: Literal["LP", "HP"], fc: float, fs: float) -> list[Biq
     return [design(kind, fc, fs, q=1 / math.sqrt(2))] * 2
 
 
+def first_order(kind: Literal["LP", "HP"], f0: float, fs: float) -> Biquad:
+    """First-order (6 dB/oct) low- or high-pass by the bilinear transform, as one biquad with b2 = a2 = 0.
+    Not LR2: that is two first-order sections, one biquad at Q 0.5, a different filter."""
+    if not 0 < f0 < fs / 2:
+        raise ValueError(f"f0 {f0} Hz outside (0, {fs / 2})")
+    k = math.tan(math.pi * f0 / fs)
+    a1 = (k - 1) / (k + 1)
+    if kind == "LP":
+        return Biquad(k / (1 + k), k / (1 + k), 0.0, a1, 0.0)
+    if kind == "HP":
+        return Biquad(1 / (1 + k), -1 / (1 + k), 0.0, a1, 0.0)
+    raise ValueError("a first-order section is LP or HP")
+
+
 XoverTopology = Literal["BW2", "BW4", "LR2", "LR4", "LR8"]
 
 # Section Qs per topology: Butterworth poles, and Linkwitz-Riley as a Butterworth squared (LR2 = two

@@ -12,7 +12,7 @@ from typing import Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .biquad import Biquad, FilterType, XoverTopology, cascade_response, crossover_sections, design
+from .biquad import Biquad, FilterType, XoverTopology, cascade_response, crossover_sections, design, first_order
 
 XOVER_SLOTS = 8  # two crossover groups of four biquads per output (2x4HD, Flex, Flex HTx, DDRC-24...)
 
@@ -28,18 +28,24 @@ class Peq(BaseModel):
 
 
 class XoverFilter(BaseModel):
-    """One crossover filter: a preset `topology` (LR4...), or explicit section Qs (`qs`, one biquad each).
-    kind AP (all-pass) always takes `qs`; it delays without changing the level, like a passive LC all-pass."""
+    """One crossover filter: a preset `topology` (LR4...), explicit section Qs (`qs`, one biquad each), or a single
+    first-order section (`order: 1`, LP or HP). kind AP (all-pass) always takes `qs`; it delays without changing the
+    level, like a passive LC all-pass."""
     model_config = ConfigDict(extra="forbid")  # it is also a config entry: typos must fail
     kind: Literal["HP", "LP", "AP"]
     topology: XoverTopology | None = "LR4"
     qs: list[float] | None = Field(default=None, description="Explicit section Qs; overrides topology")
+    order: Literal[1] | None = Field(default=None, description="1 = one first-order (6 dB/oct) section, LP or HP")
     freq_hz: float = Field(gt=0)
     protect: bool = Field(default=False, description="Driver protection: never removed, even for raw captures")
 
     @model_validator(mode="after")
     def _shape(self) -> XoverFilter:
-        if self.qs is not None:
+        if self.order == 1:
+            if self.kind == "AP" or self.qs is not None:
+                raise ValueError("a first-order section is LP or HP, with no qs")
+            self.topology = None
+        elif self.qs is not None:
             if not self.qs or any(q <= 0 for q in self.qs):
                 raise ValueError("qs must be a non-empty list of positive Qs")
             self.topology = None
@@ -50,12 +56,14 @@ class XoverFilter(BaseModel):
         return self
 
     def sections(self, fs: float) -> list[Biquad]:
+        if self.order == 1:
+            return [first_order(self.kind, self.freq_hz, fs)]
         if self.qs is not None:
             return [design(self.kind, self.freq_hz, fs, q=q) for q in self.qs]
         return crossover_sections(self.kind, self.topology, self.freq_hz, fs)
 
     def label(self) -> str:
-        shape = self.topology or "Q " + "/".join(f"{q:g}" for q in self.qs)
+        shape = "1st order" if self.order == 1 else self.topology or "Q " + "/".join(f"{q:g}" for q in self.qs)
         return f"{self.kind} {self.freq_hz:g} Hz {shape}"
 
 
