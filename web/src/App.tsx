@@ -13,7 +13,7 @@ const TABS: [Tab, string][] = [["room", "Room"], ["status", "Status"], ["setups"
 function primaryLabel(s: State): string {
   const a = s.pending_action;
   if (s.busy) return "Measuring";
-  if (s.speaker) return s.speaker.waiting ? "Ready" : s.speaker.done ? "Set complete" : "Measuring";
+  if (s.speaker && !a) return s.speaker.waiting ? "Ready" : s.speaker.done ? "Set complete" : "Measuring";
   if (!a) return s.done ? "Finished" : "Start";
   if (a.key === "crawl:grid_setup") return "A1 is marked";
   if (a.key.startsWith("crawl:mic:")) return "Mic is here";
@@ -47,8 +47,9 @@ export default function App() {
     setError(null);
     try { const r = await fn(); if (r && r.ok === false) setError(r.message); } catch { setError("Couldn't reach Rewdio"); }
   };
-  const onPrimary = () => act(() => (sp ? speakerReady(sp.prompt?.key)
-    : state.pending_action ? confirm(state.pending_action.key) : step()));
+  // the room calibration (crawl, mic moves) comes first; the turntable only when nothing else is waiting
+  const onPrimary = () => act(() => (state.pending_action ? confirm(state.pending_action.key)
+    : sp ? speakerReady(sp.prompt?.key) : step()));
   const onVoice = (on: boolean) => { setVoiceEnabled(on); setVoice(on); };
   const onCell = (c: Cell) => {
     if (c.status === "measured" || !c.near_wall) return;
@@ -80,14 +81,14 @@ export default function App() {
               {a && !a.key.startsWith("crawl:") && <ActionCard action={a} />}
               <RoomPlan crawl={crawl} onCell={onCell} highlight={placeCodes} />
             </>
-          ) : sp && tab === "status" ? <SpeakerCard sp={sp} voice={voice} onVoice={onVoice} />
+          ) : sp && !a && tab === "status" ? <SpeakerCard sp={sp} voice={voice} onVoice={onVoice} />
           : <StatusView state={state} pair={pair} />}
       </main>
       {footer && <footer className="actions">
         {error && <p className="note">{error}</p>}
         {!state.busy && state.last_status === "error" && <p className="note">Stopped: {state.last_error}</p>}
         {offline && <p className="note">Reconnecting</p>}
-        <button className="primary" disabled={state.busy || (sp ? !sp.waiting : state.done && !a)} onClick={onPrimary}>
+        <button className="primary" disabled={state.busy || (a ? false : sp ? !sp.waiting : state.done)} onClick={onPrimary}>
           {state.busy && <span className="spinner" aria-hidden />}{primaryLabel(state)}
         </button>
       </footer>}

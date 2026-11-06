@@ -6,7 +6,7 @@ from ..analysis.gating import direct_segment
 from ..analysis.quality import check_sweep
 from ..analysis.response import Response, log_grid
 from ..analysis.waterfall import keep_ir
-from ..config import SystemConfig, TimingMode
+from ..config import ChannelKind, SystemConfig, TimingMode
 from ..minidsp.client import MiniDSPClient
 from ..minidsp.state import DspState, OutputState, XoverFilter, xover_sections
 from ..rew.client import RewClient, RewError
@@ -113,8 +113,12 @@ class Rig:
         new = self._copy()
         lo, hi = self.cfg.dsp_gain_range_db
         for c in self.cfg.channels:
+            if c.role not in state.outputs:  # not part of this solution (e.g. a speaker under measurement): keep it
+                new.outputs[c.role] = self.s.dsp.get(c.role).model_copy(deep=True)
+                continue
             o = state.get(c.role).model_copy(deep=True)
-            o.mute = False if listen else self.s.dsp.get(c.role).mute
+            # listening unmutes the room system, never a speaker under measurement
+            o.mute = False if listen and c.kind != ChannelKind.DRIVER else self.s.dsp.get(c.role).mute
             o.gain_db = min(max(o.gain_db, lo), hi)
             o.delay_ms = min(max(o.delay_ms, 0.0), self.cfg.dsp_max_delay_ms)
             new.outputs[c.role] = o

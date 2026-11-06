@@ -421,6 +421,12 @@ class SystemConfig(_Strict):
         return [c for c in self.channels if c.kind == ChannelKind.MAIN]
 
     @property
+    def room_channels(self) -> list[Channel]:
+        """The channels the room calibration works on: mains and subs. Driver channels (a speaker under
+        measurement, e.g. the mule) stay muted during room sweeps and are never solved or reset by it."""
+        return [c for c in self.channels if c.kind != ChannelKind.DRIVER]
+
+    @property
     def drivers(self) -> list[Channel]:
         return [c for c in self.channels if c.kind == ChannelKind.DRIVER]
 
