@@ -76,15 +76,22 @@ class CrawlPhase(PhaseBase):
         res = self.analyze_crawl()
         crawl["result"] = res
         best = res["best_pairs"][0]
-        a, b = best["positions"]
-        xyz = {k: done[k]["xyz"] for k in (a, b)}
-        log.append(f"crawl best pair {a}+{b}: in-band std {best['std_db']} dB ({res['confidence']})")
         roles = [s.role for s in subs]
+        if len(roles) > 1:
+            a, b = best["positions"]
+            log.append(f"crawl best pair {a}+{b}: in-band std {best['std_db']} dB ({res['confidence']})")
+        else:
+            # One sub: the best place for it alone, which is often not either half of the best pair
+            single = res["best_single"][0]
+            a, b = single["position"], None
+            log.append(f"crawl best single spot {a}: in-band std {single['std_db']} dB ({res['confidence']})")
+        xyz = {k: done[k]["xyz"] for k in (a, b) if k}
         moves = f"{roles[0]} to {a}{' ' + str(xyz[a]) if xyz[a] else ''}"
         if len(roles) > 1:
             moves += f" and {roles[1]} to {b}{' ' + str(xyz[b]) if xyz[b] else ''}"
         else:
-            moves += f" (a second sub at {b} would score {best['std_db']} dB)"
+            pa, pb = best["positions"]
+            moves += f" (with a second sub, {pa} and {pb} together would score {best['std_db']} dB)"
         self._ask("crawl:place_final", f"Placement result: move {moves}. Put the mic back at {seat}. Confirm when done.",
                   mic_to=seat, recommendation=res["best_pairs"][:3], place={roles[i]: p for i, p in enumerate((a, b)[:len(roles)])},
                   sim={"move_subs": {roles[i]: xyz[p] for i, p in enumerate((a, b)[:len(roles)])}})
