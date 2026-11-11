@@ -76,5 +76,7 @@ def setup_instructions(g: CrawlGrid, n_cells: int) -> str:
             f"wall and {g.origin_from_left_m * 100:.0f} cm out from the LEFT wall. Rows are letters going back into "
             f"the room, columns are numbers going right; every step is {g.spacing_m * 100:.0f} cm, except the last "
             f"row and column, which sit the same distance from the back and right walls. "
-            f"{n_cells} spots to visit. Tap any cell where a sub can't go (sofa, doorway) to skip it. "
+            f"{n_cells} spots to visit. At every spot the mic stands {g.mic_height_m * 100:.0f} cm off the floor, "
+            f"where the centre of the sub's woofer will be; if yours sits higher or lower, change the grid's mic "
+            f"height in Settings first. Tap any cell where a sub can't go (sofa, doorway) to skip it. "
             f"Confirm when A1 is marked.")

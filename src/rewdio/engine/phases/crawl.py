@@ -40,9 +40,12 @@ class CrawlPhase(PhaseBase):
         sub = subs[0].role
         seat = self.cfg.mic_positions[0]
         seat_hint = f" ({list(self.cfg.seat_xyz[seat])} m)" if seat in self.cfg.seat_xyz else ""
+        # Reciprocity swaps two points: the woofer stands in for the listener's ears, so height matters
+        ear = (f"about {self.cfg.seat_xyz[seat][2] * 100:.0f} cm off the floor, your ear height"
+               if seat in self.cfg.seat_xyz else "at your ear height")
         self._ask("crawl:place_sub", f"Reverse calculation set-up: put {sub} AT the listening position {seat}{seat_hint}, "
-                                     f"driver as close to ear height as practical (on the seat), facing where you face. "
-                                     f"Keep any other subs off. Confirm when done.",
+                                     f"raised on the seat or a stand so the centre of its woofer is {ear}, facing where "
+                                     f"you face. Keep any other subs off. Confirm when done.",
                   sim={"move_speaker": sub, "to_seat": seat})
         g = self.cfg.crawl_grid
         if g.enabled:
@@ -76,15 +79,22 @@ class CrawlPhase(PhaseBase):
         res = self.analyze_crawl()
         crawl["result"] = res
         best = res["best_pairs"][0]
-        a, b = best["positions"]
-        xyz = {k: done[k]["xyz"] for k in (a, b)}
-        log.append(f"crawl best pair {a}+{b}: in-band std {best['std_db']} dB ({res['confidence']})")
         roles = [s.role for s in subs]
+        if len(roles) > 1:
+            a, b = best["positions"]
+            log.append(f"crawl best pair {a}+{b}: in-band std {best['std_db']} dB ({res['confidence']})")
+        else:
+            # One sub: the best place for it alone, which is often not either half of the best pair
+            single = res["best_single"][0]
+            a, b = single["position"], None
+            log.append(f"crawl best single spot {a}: in-band std {single['std_db']} dB ({res['confidence']})")
+        xyz = {k: done[k]["xyz"] for k in (a, b) if k}
         moves = f"{roles[0]} to {a}{' ' + str(xyz[a]) if xyz[a] else ''}"
         if len(roles) > 1:
             moves += f" and {roles[1]} to {b}{' ' + str(xyz[b]) if xyz[b] else ''}"
         else:
-            moves += f" (a second sub at {b} would score {best['std_db']} dB)"
+            pa, pb = best["positions"]
+            moves += f" (with a second sub, {pa} and {pb} together would score {best['std_db']} dB)"
         self._ask("crawl:place_final", f"Placement result: move {moves}. Put the mic back at {seat}. Confirm when done.",
                   mic_to=seat, recommendation=res["best_pairs"][:3], place={roles[i]: p for i, p in enumerate((a, b)[:len(roles)])},
                   sim={"move_subs": {roles[i]: xyz[p] for i, p in enumerate((a, b)[:len(roles)])}})
