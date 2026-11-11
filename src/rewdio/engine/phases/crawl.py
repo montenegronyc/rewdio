@@ -40,9 +40,12 @@ class CrawlPhase(PhaseBase):
         sub = subs[0].role
         seat = self.cfg.mic_positions[0]
         seat_hint = f" ({list(self.cfg.seat_xyz[seat])} m)" if seat in self.cfg.seat_xyz else ""
+        # Reciprocity swaps two points: the woofer stands in for the listener's ears, so height matters
+        ear = (f"about {self.cfg.seat_xyz[seat][2] * 100:.0f} cm off the floor, your ear height"
+               if seat in self.cfg.seat_xyz else "at your ear height")
         self._ask("crawl:place_sub", f"Reverse calculation set-up: put {sub} AT the listening position {seat}{seat_hint}, "
-                                     f"driver as close to ear height as practical (on the seat), facing where you face. "
-                                     f"Keep any other subs off. Confirm when done.",
+                                     f"raised on the seat or a stand so the centre of its woofer is {ear}, facing where "
+                                     f"you face. Keep any other subs off. Confirm when done.",
                   sim={"move_speaker": sub, "to_seat": seat})
         g = self.cfg.crawl_grid
         if g.enabled:
