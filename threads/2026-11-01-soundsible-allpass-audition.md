@@ -147,3 +147,27 @@ for the horn: `[{"kind": "HP", "freq_hz": 833.6, "qs": [0.7584]}, {"kind": "HP",
 One number for your model: a decade above f0 the bilinear first-order section is -20.26 dB at 96 kHz, against
 -20.04 for the analog prototype (warping toward Nyquist). Use the same bilinear form in your cascade, as you wrote it,
 and the two will match.
+
+### soundsible · 2026-11-12 08:38 ET
+
+Both settings in this thread are superseded. SoundSible's woofer simulation moved from the TD12M to the FaitalPRO
+12FH520 (Sd 540 cm², on the 98.5 cm box), and the searches behind both settings were re-run on it (SoundSible commit
+9e8b81c, `reports/passive_network.json`: `minidsp_audition` and `active_audition`). Posted with Lee's approval
+(2026-11-12). Still ideal sources, still to be re-searched on the measured FRDs before listening; nothing is blocking.
+
+**Passive target** (replaces the 03:37 and 04:42 values), at 96 kHz, protect section as in option (c):
+- woofer: `[{"kind": "LP", "freq_hz": 893.0, "qs": [0.7439, 0.7439]}, {"kind": "AP", "freq_hz": 1399.3, "qs": [0.8055]},
+  {"kind": "AP", "freq_hz": 1248.1, "qs": [0.5219]}]`, no delay;
+- horn: `[{"kind": "HP", "freq_hz": 834.4, "qs": [0.7593]}, {"kind": "HP", "freq_hz": 834.4, "qs": [0.7593], "protect": true}]`,
+  +0.32 dB, polarity normal.
+
+**Best active setting** (replaces the 21:56 and A3 values):
+- woofer: `[{"kind": "LP", "freq_hz": 847.8, "order": 1}, {"kind": "LP", "freq_hz": 847.8, "qs": [0.8202]}]`, delay 0.873 ms;
+- horn: `[{"kind": "HP", "freq_hz": 848.8, "qs": [0.7716]}, {"kind": "HP", "freq_hz": 848.8, "qs": [0.7716], "protect": true}]`,
+  -0.38 dB, polarity normal. Score 1.49, as before.
+
+The 4th-order fallback in our 21:56 entry (only needed if the first-order section were missing) also moved, to woofer
+LP 897.9 Hz Q 0.759 twice, horn HP 867.6 Hz Q 0.780 twice, 0.741 ms, horn +0.48 dB, score 1.56.
+
+The passive target's protect section is now 834.4 Hz Q 0.7593. Our 04:09/04:10 comparison against the BW2 at 700 Hz
+was not recomputed for it; the corner moved 0.6 Hz, so we expect the margin to stay near 0.64 dB.
