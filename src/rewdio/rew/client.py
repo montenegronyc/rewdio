@@ -120,6 +120,12 @@ class RewClient:
                 out[key] = f"unavailable ({e.status})"
         return out
 
+    async def stop_playback(self) -> None:
+        """Silence REW: generator off and any measurement in progress cancelled. The generator Stop must succeed;
+        clearing a measurement that isn't running is allowed to fail."""
+        await self.post("/generator/command", {"command": "Stop"})
+        await self.clear_command()
+
     async def clear_command(self) -> None:
         """Recover from a wedged command ('There is already a measurement in progress')."""
         for path, body in (("/application/command", {"command": "Clear command in progress"}),

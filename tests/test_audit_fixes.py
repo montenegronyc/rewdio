@@ -44,16 +44,8 @@ async def test_failed_dsp_write_leaves_the_shadow_matching_the_hardware(sim_runt
     assert [rt.world.dsp[c.dsp_output].mute for c in rt.session.config.channels] == [False, True, True, True]
 
 
-async def test_step_error_unmutes_and_reports(sim_runtime):
-    rt = sim_runtime()
-    rt.fake_rew.fail_measures = 50  # persistent: gain staging backs off a single failure by design
-    while (rep := await rt.step())["status"] == "user_action_required":
-        rt.confirm(rep["action"]["key"], None)
-    assert rep["status"] == "error" and rep["outputs_restored"]
-    assert "simulated sweep failure" in rep["error"]
-    assert not any(d.mute for d in rt.world.dsp.values())  # not left soloed on one speaker
-    rt.fake_rew.fail_measures = 0
-    assert (await drive(rt))["status"] == "done"  # and it resumes where it stopped
+# test_step_error_unmutes_and_reports was replaced by test_speaker_safety.py::
+# test_an_error_mutes_everything_and_stops_rew: errors now mute and stop REW (SAFETY_AUDIT.md #7).
 
 
 async def test_manual_tools_refuse_while_a_step_runs(sim_runtime):

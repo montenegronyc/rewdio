@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..analysis.gating import direct_segment
-from ..analysis.quality import check_sweep
+from ..analysis.quality import check_sweep, sub_inband_snr_db
 from ..analysis.response import Response, log_grid
 from ..analysis.waterfall import keep_ir
 from ..config import ChannelKind, SystemConfig, TimingMode
@@ -33,9 +33,10 @@ class Rig:
         return log_grid(self.cfg.analysis_ppo, g.f_lo_hz, g.f_hi_hz)
 
     # -- DSP ------------------------------------------------------------------------
-    # The hardware is written FIRST and the shadow state updated only after it succeeds. If a write fails
-    # part-way (minidsp-rs applies a config sequentially, with no rollback), the rig is marked dirty and the
-    # next write re-sends every channel's full state, so the shadow and the hardware can't drift apart.
+    # The hardware is written FIRST and the shadow state updated only after it succeeds. The rig is marked dirty
+    # before every write and cleared after it lands: if a write fails or is interrupted part-way (minidsp-rs
+    # applies a config sequentially, with no rollback), the next write re-sends every channel's full state, so the
+    # shadow and the hardware can't drift apart.
 
     def _patch(self, role: str, o: OutputState, mute_only: bool = False, include_peq: bool = True) -> dict:
         out = self.cfg.channel(role).dsp_output
@@ -72,15 +73,24 @@ class Rig:
         if self._check_protection(new) or self.dirty:  # unknown crossover filled, or a failed write: send everything
             roles, mute_only, include_peq = None, False, True
         targets = [c.role for c in self.cfg.channels if roles is None or c.role in roles]
-        by_dev: dict[int, list[dict]] = {}
+        # A channel is never live while its gain, filters or delay change: settings are written muted, and a
+        # mute-only write afterwards unmutes what should play (minidsp-rs writes the mute first, the crossover last).
+        settings: dict[int, list[dict]] = {}
+        unmute: dict[int, list[dict]] = {}
         for r in targets:  # one write per miniDSP unit
-            by_dev.setdefault(self.cfg.device_of(r), []).append(self._patch(r, new.get(r), mute_only, include_peq))
-        try:
-            for dev, patches in sorted(by_dev.items()):
+            o, dev = new.get(r), self.cfg.device_of(r)
+            if mute_only:
+                settings.setdefault(dev, []).append(self._patch(r, o, mute_only=True))
+                continue
+            settings.setdefault(dev, []).append(self._patch(r, o.model_copy(update={"mute": True}), False, include_peq))
+            if not o.mute:
+                unmute.setdefault(dev, []).append(self._patch(r, o, mute_only=True))
+        # Marked out of sync BEFORE the write and cleared only after it lands, so a cancelled call or a killed
+        # process (not only an exception) makes the next write re-send everything.
+        self.dirty = True
+        for writes in (settings, unmute):
+            for dev, patches in sorted(writes.items()):
                 await self.dsp.set_outputs(patches, dev)
-        except Exception:
-            self.dirty = True
-            raise
         self.s.dsp = DspState.model_validate({**new.model_dump(), "unsynced": False})
         self.s.save()
 
@@ -117,7 +127,6 @@ class Rig:
     async def apply(self, state: DspState, listen: bool = False) -> None:
         """Write `state` to every channel (clamped). listen=True unmutes everything in the same write."""
         new = self._copy()
-        lo, hi = self.cfg.dsp_gain_range_db
         for c in self.cfg.channels:
             if c.role not in state.outputs:  # not part of this solution (e.g. a speaker under measurement): keep it
                 new.outputs[c.role] = self.s.dsp.get(c.role).model_copy(deep=True)
@@ -125,10 +134,24 @@ class Rig:
             o = state.get(c.role).model_copy(deep=True)
             # listening unmutes the room system, never a speaker under measurement
             o.mute = False if listen and c.kind != ChannelKind.DRIVER else self.s.dsp.get(c.role).mute
+            lo, hi = self._gain_limits(c.role)
             o.gain_db = min(max(o.gain_db, lo), hi)
             o.delay_ms = min(max(o.delay_ms, 0.0), self.cfg.dsp_max_delay_ms)
+            if c.kind != ChannelKind.DRIVER and c.crossover is not None:
+                o.crossover = list(c.crossover)  # a room channel's crossover always comes from the config
             new.outputs[c.role] = o
         await self._commit(new)
+
+    def _gain_limits(self, role: str) -> tuple[float, float]:
+        """The DSP's gain range, with room channels capped so sweep level + gain stays inside the headroom the
+        config guarantees (sweep.max_output_dbfs)."""
+        lo, hi = self.cfg.dsp_gain_range_db
+        kind = self.cfg.channel(role).kind
+        if kind == ChannelKind.SUB:
+            hi = min(hi, self.cfg.max_sub_gain_db)
+        elif kind == ChannelKind.MAIN:
+            hi = min(hi, self.cfg.max_main_gain_db)
+        return lo, hi
 
     async def set_channel(self, role: str, **fields) -> OutputState:
         new = self._copy()
@@ -136,7 +159,7 @@ class Rig:
         for k, v in fields.items():
             if v is not None:
                 setattr(o, k, v)
-        lo, hi = self.cfg.dsp_gain_range_db
+        lo, hi = self._gain_limits(role)
         o.gain_db = min(max(o.gain_db, lo), hi)
         o.delay_ms = min(max(o.delay_ms, 0.0), self.cfg.dsp_max_delay_ms)
         await self._commit(new, [role], include_peq=False)
@@ -146,6 +169,7 @@ class Rig:
         """Write a channel's crossover: `filters`, else its configured crossover. raw=True keeps only the
         protection filters, for capturing the driver itself. Protection filters can never be dropped."""
         ch = self._managed(role)
+        self._room_crossover_guard(ch, filters, raw)
         want = list(filters if filters is not None else ch.crossover)
         if raw:
             want = [f for f in want if f.protect]
@@ -153,6 +177,16 @@ class Rig:
         new.get(role).crossover = want
         await self._commit(new, [role])
         return self.s.dsp.get(role)
+
+    @staticmethod
+    def _room_crossover_guard(ch, filters: list[XoverFilter] | None, raw: bool) -> None:
+        """Raw captures and custom crossovers are for driver channels. A main or sub keeps its configured
+        crossover: without it a main gets the 10 Hz end of every sweep, a sub the whole audio band."""
+        if ch.kind == ChannelKind.DRIVER:
+            return
+        if raw or (filters is not None and list(filters) != list(ch.crossover)):
+            raise ValueError(f"{ch.role} is a {ch.kind.value} channel: its crossover comes from the config and can't "
+                             "be removed or replaced here. Change `crossover` in the settings to change it")
 
     def _managed(self, role: str):
         ch = self.cfg.channel(role)
@@ -165,6 +199,7 @@ class Rig:
         new = self._copy()
         for r in roles:
             ch = self._managed(r)
+            self._room_crossover_guard(ch, None, raw)
             new.get(r).crossover = [f for f in ch.crossover if f.protect] if raw else list(ch.crossover)
         await self._commit(new, roles)
 
@@ -252,11 +287,15 @@ class Rig:
         spec = await self.rew.frequency_response(summary["uuid"], ppo=self.cfg.analysis_ppo, smoothing="None")
         resp = Response.from_db_phase(spec.freqs, spec.mag_db, spec.phase_deg, grid=self.grid())
         snap = DspState(outputs={r: self.s.dsp.get(r).model_copy(deep=True) for r in roles})
+        inband = sub_inband_snr_db(self.cfg, resp, list(roles))  # REW's broadband SNR undersells a sub-only sweep
+        if inband is not None:
+            summary = {**summary, "snr_inband_db": inband}
         findings = check_sweep(self.cfg, resp, summary, list(roles), self.s.workflow.staging_reference_db)
         rec = MeasurementRecord(id=summary["uuid"], title=title, kind=kind, roles=list(roles), position=position,
                                 pass_no=self.s.workflow.pass_no, snapshot=snap, level_dbfs=self.level_dbfs,
                                 timing=self.cfg.timing_mode.value,
                                 extra={**extra, "snr_db": summary.get("signalToNoisedB"),
+                                       "snr_inband_db": inband,
                                        "quality": [f.as_dict() for f in findings]})
         # provenance in REW itself, so a saved .mdat explains how it was taken
         await self.rew.annotate(rec.id, title, {"rewdio": {"kind": kind, "roles": list(roles), "position": position,

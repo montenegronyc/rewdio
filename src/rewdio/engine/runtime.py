@@ -14,10 +14,36 @@ from .store import Session
 from .workflow import Autopilot
 
 
+def claim_session(folder) -> None:
+    """One process drives a session's REW and miniDSP. asyncio's lock only covers this process, so a second
+    process (a standalone dashboard next to the MCP server, a second Claude session) is refused here."""
+    lock = folder / "driver.lock"
+    me = os.getpid()
+    try:
+        other = int(lock.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        other = None
+    if other and other != me and _alive(other):
+        raise RuntimeError(f"another Rewdio process (pid {other}) is driving the session in {folder}; stop it, or "
+                           "run this one on another session, so two programs never sweep and mute at once")
+    lock.write_text(str(me))
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:  # exists, owned by someone else
+        return True
+    return True
+
+
 class Runtime:
     def __init__(self, session_name: str = "default", root: str | None = None, simulate: bool | None = None,
                  world=None):
         self.session = Session(root, session_name)
+        claim_session(self.session.dir)
         self.simulate = (os.environ.get("REWDIO_SIMULATE", "") not in ("", "0", "false")) if simulate is None else simulate
         self.world = world
         self.fake_rew = self.fake_dsp = None

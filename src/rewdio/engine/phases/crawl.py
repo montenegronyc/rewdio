@@ -72,7 +72,7 @@ class CrawlPhase(PhaseBase):
                           "actual x,y,z you used.")
             self._ask(key, text, mic_to=lab, xyz_suggestion=spot["xyz"], cell=lab if g.enabled else None)
             c = self._confirmed(key) or {}
-            rec, _ = await self.rig.measure([sub], "crawl", lab, seat=seat, xyz=c.get("xyz") or spot["xyz"])
+            rec, _ = await self._gated_measure([sub], "crawl", lab, log, seat=seat, xyz=c.get("xyz") or spot["xyz"])
             done[lab] = {"id": rec.id, "xyz": c.get("xyz") or spot["xyz"]}
             log.append(f"crawl {lab}: measured")
             self.s.save()

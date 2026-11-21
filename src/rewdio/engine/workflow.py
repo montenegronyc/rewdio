@@ -70,17 +70,23 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
             return self._report("user_action_required", log, action=e.action)
         except Exception as e:  # REW abort, timeout, unreachable miniDSP...: stop safely and say why
             log.append(f"stopped in {self.wf.phase}: {type(e).__name__}: {e}")
-            restored = await self._restore_listening(log)
-            return self._report("error", log, error=f"{type(e).__name__}: {e}", outputs_restored=restored,
-                                note="Fix the cause and call autopilot_step again; it resumes where it stopped.")
+            muted = await self._make_safe(log)
+            return self._report("error", log, error=f"{type(e).__name__}: {e}", outputs_muted=muted,
+                                note="Every output is muted. Fix the cause and call autopilot_step again (it resumes "
+                                     "where it stopped), or call unmute_room to listen.")
 
-    async def _restore_listening(self, log) -> bool:
-        """Never leave the system soloed after a failure: unmute the room system (current settings kept)."""
+    async def _make_safe(self, log) -> bool:
+        """After a failure nothing should play: REW may still be mid-sweep or have its generator on, and the DSP
+        may be half-written. Stop REW and mute every output; listening again is an explicit choice (unmute_room)."""
         try:
-            await self.rig.unmute_room()
+            await self.rig.rew.stop_playback()
+        except Exception as e:  # noqa: BLE001 - keep going: muting matters more
+            log.append(f"could not stop REW ({e}); stop its generator by hand before listening")
+        try:
+            await self.rig.solo([])
             return True
-        except Exception as e:
-            log.append(f"could not unmute outputs ({e}); check the miniDSP before listening")
+        except Exception as e:  # noqa: BLE001
+            log.append(f"could not mute the outputs ({e}); turn the amps down or mute the miniDSP by hand")
             return False
 
     def _report(self, status: str, log: list[str], **kw) -> dict:

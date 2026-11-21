@@ -36,6 +36,17 @@ async def input_levels(rew: RewClient, listen_s: float) -> dict:
             "clipping": bool(peak) and max(peak) > -0.5}
 
 
+async def stop_generator(rew: RewClient, attempts: int = 2) -> None:
+    """Stop REW's generator, or stop the run: noise left playing would reach the speakers at the next unmute."""
+    for attempt in range(attempts):
+        try:
+            await rew.post("/generator/command", {"command": "Stop"})
+            return
+        except RewError as e:
+            last = e
+    raise RuntimeError(f"REW's generator did not stop ({last}); stop it in REW before anything is unmuted")
+
+
 async def loopback_check(rew: RewClient, level_dbfs: float, listen_s: float, min_rms_dbfs: float) -> dict:
     """Play pink noise while the caller has every miniDSP output muted, so the room stays silent and
     the only place the noise can appear is the loopback tap (which sits before the miniDSP).
@@ -48,7 +59,7 @@ async def loopback_check(rew: RewClient, level_dbfs: float, listen_s: float, min
     try:
         lv = await input_levels(rew, listen_s)
     finally:
-        await rew.post("/generator/command", {"command": "Stop"})
+        await stop_generator(rew)
     rms = lv["rms_dbfs"]
     if len(rms) < 2:
         return {"ok": None, "levels": lv, "reason": "REW reported one input channel; cannot see the loopback input"}

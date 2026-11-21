@@ -22,7 +22,7 @@ import time
 import numpy as np
 
 from ..analysis.frd import arrival_s
-from ..config import TimingMode
+from ..config import ChannelKind, TimingMode
 from ..minidsp.state import XoverFilter, change_transfer
 from ..rew.client import RewError
 from ..rew.codec import decode_floats
@@ -61,8 +61,12 @@ async def run(rig: Rig, driver: str, distance_m: float | None = None, impedance:
     """Run every check with `driver` as the test output. Never leaves the output changed."""
     cfg, s = rig.cfg, rig.s
     ch = cfg.channel(driver)
+    if ch.kind != ChannelKind.DRIVER:  # it strips the output to the bare driver and sweeps it from 10 Hz
+        return _finish(s, [_check("driver_only", False, f"{driver} is a {ch.kind.value} channel; the self-test strips "
+                                  "an output to its raw driver and sweeps it, so it runs on driver channels only")])
     checks: list[dict] = []
     mutes, level = rig.mutes(), rig.level_dbfs
+    rig.level_dbfs = min(level, cfg.sweep.level_dbfs)  # quietly: never above the configured starting level
 
     # 1. the DSP unit(s)
     try:

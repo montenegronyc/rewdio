@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...analysis.quality import critical
 from ..rig import Rig
 from ..store import Session
 
@@ -48,3 +49,29 @@ class PhaseBase:
                   f"Move the measurement mic to {position}{hint}. Ear height, pointing at the ceiling "
                   f"(90° calibration), clear of reflective surfaces. Then confirm.",
                   mic_to=position, xyz_suggestion=xyz_hint)
+
+    async def _gated_measure(self, roles, kind, pos, log, **extra):
+        """Measure; on a critical quality finding, drop the sweep and tell the user what to fix. After
+        tuning.quality.max_retries failed re-measures of the same sweep the run stops: a dead channel is not
+        swept again and again at full level."""
+        rec, resp = await self.rig.measure(roles, kind, pos, **extra)
+        q = rec.extra.get("quality") or []
+        for f in q:
+            self.wf.quality.append({"measurement": rec.id, "roles": roles, "position": pos, "kind": kind, **f})
+        crit = critical(q)
+        if crit:
+            self.s.measurements.remove(rec)  # never solve from a bad sweep
+            self.s.save()
+            failed = {e["measurement"] for e in self.wf.quality if e.get("level") == "critical"
+                      and e.get("roles") == roles and e.get("position") == pos and e.get("kind") == kind}
+            reasons = "; ".join(f["message"] for f in crit)
+            if len(failed) > self.cfg.tuning.quality.max_retries:
+                raise RuntimeError(f"the {'+'.join(roles)} sweep at {pos} failed the quality gate {len(failed)} times "
+                                   f"({reasons}); stopped instead of sweeping it again. Fix the cause and run the "
+                                   "autopilot again")
+            self._ask(f"quality:{rec.id}", f"Sweep of {'+'.join(roles)} at {pos} failed the quality gate: "
+                      + reasons + ". Fix it and confirm; I will re-measure.", findings=crit)
+        for f in q:
+            if f["level"] == "warning":
+                log.append(f"quality warning ({'+'.join(roles)} @{pos}): {f['message']}")
+        return rec, resp

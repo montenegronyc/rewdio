@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 
 from ...analysis.alignment import fit_relative_delay
-from ...analysis.quality import critical, repeatability_db
+from ...analysis.quality import repeatability_db
 from ...analysis.solver import Measured
 from ...config import ChannelKind, TimingMode
 from .base import PhaseBase
@@ -21,24 +21,6 @@ class BaselinePhase(PhaseBase):
         lo, hi = self._sumfit_band(role)
         frac = self.cfg.tuning.autopilot.sumfit_probe_fraction_of_period
         return round(min(1000.0 * frac / math.sqrt(lo * hi), self.cfg.dsp_max_delay_ms / 2), 2)
-
-    async def _gated_measure(self, roles, kind, pos, log, **extra):
-        """Measure; on a critical quality finding, stop and tell the user what to fix."""
-        rec, resp = await self.rig.measure(roles, kind, pos, **extra)
-        q = rec.extra.get("quality") or []
-        for f in q:
-            self.wf.quality.append({"measurement": rec.id, "roles": roles, "position": pos, **f})
-        crit = critical(q)
-        if crit:
-            self.s.measurements.remove(rec)  # never solve from a bad sweep
-            self.s.save()
-            self._ask(f"quality:{rec.id}", f"Sweep of {'+'.join(roles)} at {pos} failed the quality gate: "
-                      + "; ".join(f["message"] for f in crit) + ". Fix it and confirm; I will re-measure.",
-                      findings=crit)
-        for f in q:
-            if f["level"] == "warning":
-                log.append(f"quality warning ({'+'.join(roles)} @{pos}): {f['message']}")
-        return rec, resp
 
     async def _phase_baseline(self, log) -> str:
         r = self.rig

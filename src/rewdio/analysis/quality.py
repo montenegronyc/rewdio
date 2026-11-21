@@ -25,12 +25,24 @@ class Finding:
         return {"level": self.level, "code": self.code, "message": self.message}
 
 
+def sub_inband_snr_db(cfg: SystemConfig, resp: Response, roles: list[str]) -> float | None:
+    """SNR of a sub-only sweep in the sub's own band. Everything well above the sub's low-pass is room noise, so
+    the level there is the noise floor. None for any sweep that is not subs only."""
+    if not roles or any(cfg.channel(r).kind != ChannelKind.SUB for r in roles):
+        return None
+    b, q = cfg.tuning.bands, cfg.tuning.quality
+    signal = band_median_db(resp, b.sub_level_lo_hz, cfg.crossover_hz * b.sub_level_xo_factor, b.level_smoothing)
+    noise = band_median_db(resp, *q.sub_noise_band_hz, b.level_smoothing)
+    return round(float(signal - noise), 1)
+
+
 def check_sweep(cfg: SystemConfig, resp: Response, summary: dict, roles: list[str], reference_db: float | None) -> list[Finding]:
     """reference_db: mains-band level of the gain-staging sweep, to spot a dead channel."""
     q = cfg.tuning.quality
     b = cfg.tuning.bands
     out: list[Finding] = []
-    snr = summary.get("signalToNoisedB")
+    inband = summary.get("snr_inband_db")
+    snr = inband if inband is not None else summary.get("signalToNoisedB")
     if snr is not None:
         if snr < q.min_snr_db_critical:
             out.append(Finding("critical", "low_snr", f"SNR {snr:.0f} dB: too quiet against the background. Raise the "

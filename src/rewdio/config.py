@@ -17,6 +17,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .config_safety import enforce_safety
 from .minidsp.state import XoverFilter
 
 
@@ -83,6 +84,8 @@ class SweepSettings(_Strict):
     target_spl_db: float
     max_spl_db: float
     min_snr_db: float
+    max_output_dbfs: float = Field(le=0, description="Highest level any miniDSP output may reach: sweep level plus the "
+                                                  "largest channel gain and PEQ boost Rewdio may apply")
     start_delay_s: float = Field(description="REW start delay; raise it if a DAC/upsampler eats the sweep start")
     fill_silence_with_dither: bool = Field(
         description="Keep the digital stream alive between sweeps so an S/PDIF DAC stays locked")
@@ -219,6 +222,10 @@ class QualityTuning(_Strict):
     repeat_check: bool
     repeat_band_hz: tuple[float, float]
     max_repeat_std_db: float
+    max_retries: int = Field(ge=0, description="Re-measures allowed after a sweep fails the quality gate before the run "
+                                               "stops, so a dead channel is not swept again and again")
+    sub_noise_band_hz: tuple[float, float] = Field(description="Band where a sub-only sweep holds only room noise (far "
+                                                           "above its low-pass): its in-band SNR is measured against this")
 
 
 class DiagnosticsTuning(_Strict):
@@ -365,6 +372,10 @@ class SystemConfig(_Strict):
     mic_cal_path: str | None
     mic_sensitivity_dbfs: float | None
     max_sub_gain_db: float = Field(description="Sub output gain ceiling (headroom); mains are cut instead")
+    max_main_gain_db: float = Field(description="Main output gain ceiling, for the solver and manual set_channel alike")
+    sub_infrasonic_hp_hz: float | None = Field(gt=0, le=25, description="A protected high-pass added to every sub whose "
+                                                                  "crossover Rewdio manages, so sweeps from 10 Hz never "
+                                                                  "drive it below its useful range; null = none")
     allow_peq: bool
     max_peq_boost_db: float
     analysis_ppo: int
@@ -397,10 +408,7 @@ class SystemConfig(_Strict):
             raise ValueError(f"timing_reference_channel {self.timing_reference_channel!r} is not a channel")
         if not self.mic_positions:
             raise ValueError("need at least one mic position")
-        sw, gs = self.sweep, self.tuning.gain_staging
-        if sw.target_spl_db > sw.max_spl_db - gs.peak_margin_db - 3:
-            raise ValueError(f"sweep.target_spl_db ({sw.target_spl_db}) must sit at least peak_margin_db + 3 dB below "
-                             f"sweep.max_spl_db ({sw.max_spl_db}), or staging aims at REW's abort limit")
+        enforce_safety(self)
         if self.balance.enabled and len(self.mains) >= 2 and not set(self.balance.pair) <= set(roles):
             raise ValueError(f"balance.pair {self.balance.pair} must name two channels")
         return self

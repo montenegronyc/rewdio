@@ -76,6 +76,7 @@ class SetupPhase(PhaseBase):
         sw, gs, b = self.cfg.sweep, self.cfg.tuning.gain_staging, self.cfg.tuning.bands
         self._mic_to(self.cfg.mic_positions[0], "start")
         pos = self.wf.mic_at or "unknown"
+        await r.set_level(sw.level_dbfs)  # always from the quiet start, never from a level left by an earlier run
         mains = [c.role for c in self.cfg.mains] or [c.role for c in self.cfg.room_channels]
         # With no mic sensitivity, REW's "SPL" is mic dBFS + 120: it follows the preamp knob, not the speakers, so
         # an SPL target would drive the speakers harder whenever the knob is turned down. Stage by SNR instead.

@@ -5,12 +5,36 @@ what in Rewdio's code could send a signal that harms a driver? Read-only audit o
 session (`~/.rewdio/default`) and minidsp-rs's `Output::apply` ordering; the critical findings were checked against
 the code by a second reader, and #1 was reproduced in the simulator (dead mic → staging climbs −36 → −6 dBFS).
 
-**Fixed 2026-11-21: #1, #2 and #3** (`engine/phases/setup.py`, tests in `tests/test_staging_safety.py`, each shown
-to fail on the old code first). Staging now stops with "no signal" when a step up is not heard (tolerance
-`gain_staging.rise_tolerance_db`), stages by SNR (`gain_staging.target_snr_db`) when `mic_sensitivity_dbfs` is unset,
-stops if the SNR is still below `quality.min_snr_db_critical` at the level cap, re-checks a silent input after every
-"fixed" (`preflight.max_mic_rechecks`), and the config refuses `target_spl_db` within `peak_margin_db + 3` of
-`max_spl_db`. The rest are open; each fix should land with a regression test that fails on the current code.
+**Status 2026-11-21: #1–#14 fixed** in two commits (`e69dda2`: #1–#3; the next: #4–#14). Every fix has a test in
+`tests/test_staging_safety.py` or `tests/test_speaker_safety.py` that failed on the old code first. What changed:
+
+- **Staging (#1–#3, #13):** stops with "no signal" when a step up isn't heard (`gain_staging.rise_tolerance_db`); stages
+  by SNR (`gain_staging.target_snr_db`) when `mic_sensitivity_dbfs` is unset; stops if SNR is still below
+  `quality.min_snr_db_critical` at the cap; re-checks a silent input after every "fixed" (`preflight.max_mic_rechecks`);
+  always starts at `sweep.level_dbfs`; the config refuses `target_spl_db` within `peak_margin_db + 3` of `max_spl_db`.
+- **DSP writes (#5, #6):** settings are written with the output muted, then a mute-only write unmutes; the rig is marked
+  out of sync before every write and cleared only after it lands, so cancellation or a killed process can't hide a
+  half-written channel (`engine/rig.py` `_commit`).
+- **Errors (#7):** stop REW (generator off, measurement cancelled) and mute every output; listening again is the
+  `unmute_room` tool (or recalling a setup).
+- **Room crossovers (#4, #11):** `set_crossover`, `set_crossovers(raw=True)` and `rig_selftest` refuse mains and subs;
+  `apply` (and so setup recall) always takes a room channel's crossover from the config; the self-test plays at most
+  at `sweep.level_dbfs`.
+- **Gain envelope (#9, #10):** gains are capped per kind (`max_sub_gain_db`, new `max_main_gain_db`) for the solver and
+  `set_channel` alike; the config refuses `max_level_dbfs` + largest gain/boost above `sweep.max_output_dbfs` (−3), so
+  the default `max_level_dbfs` is now −9; every managed sub gets a protected BW2 high-pass at `sub_infrasonic_hp_hz`
+  (15 Hz) (`config_safety.py`).
+- **Quality (#8):** crawl sweeps go through the same gate as the baseline; sub-only sweeps are judged on in-band SNR
+  (sub band vs `quality.sub_noise_band_hz`); a sweep that fails the gate more than `quality.max_retries` times stops the run.
+- **One driver (#12):** a session folder holds a `driver.lock` with the owning pid; a second live process is refused.
+- **Loopback noise (#14):** if REW's generator won't stop, the run stops (and the error path mutes everything).
+
+Still open:
+- **#9, partly:** no quiet per-channel probe before a channel's first sweep. Its risk is now bounded by the headroom
+  rule, the sub's infrasonic high-pass and REW's clip abort, but a sub far more sensitive than the mains still gets
+  its first sweep at the mains' staged level.
+- **#15 (found while testing): outputs not in the config are never muted.** A miniDSP output that is routed but not
+  listed as a channel (e.g. Out4 with one sub) plays every sweep. Mute unused outputs by hand until Rewdio does.
 
 ## What reached the speakers tonight
 
@@ -40,20 +64,20 @@ stops if the SNR is still below `quality.min_snr_db_critical` at the level cap, 
 
 ## Fixes, in the order to do them
 
-1. ✅ *(done except #13)* **Staging that cannot run away (#1, #2, #3, #13):** play one probe at `min_level_dbfs` and require SNR ≥ 15 dB
+1. ✅ **Staging that cannot run away (#1, #2, #3, #13):** play one probe at `min_level_dbfs` and require SNR ≥ 15 dB
    before any step up; require each step to raise the measured band by its step ±2 dB, else abort "no signal";
    cap the total rise per run without user confirmation; always start at `sweep.level_dbfs`. Stage by REW's SNR
    with a dBFS ceiling when `mic_sensitivity_dbfs` is unset; validate `target_spl_db ≤ max_spl_db − peak_margin − 3`.
-2. **Mute-first writes (#5, #6, #7):** mute all → write gain/delay/PEQ/crossover → mute-only unmute. Set `unsynced`
+2. ✅ **Mute-first writes (#5, #6, #7):** mute all → write gain/delay/PEQ/crossover → mute-only unmute. Set `unsynced`
    *before* the HTTP call, clear only on success, and catch `BaseException`. On error: mute everything, Cancel REW,
    Stop the generator; unmute only on an explicit request.
-3. **Protect room crossovers (#4, #11):** restrict `set_crossover`, `raw`, and `rig_selftest` to `driver` channels; run
+3. ✅ **Protect room crossovers (#4, #11):** restrict `set_crossover`, `raw`, and `rig_selftest` to `driver` channels; run
    the selftest at `min_level_dbfs`; on setup recall, room channels take the crossover from config.
-4. **Gain envelope (#10, #9):** clamp per channel kind (sub: `max_sub_gain_db`); enforce level + gain + PEQ boost ≤ −3 dBFS;
+4. ✅ **Gain envelope (#10, #9):** clamp per channel kind (sub: `max_sub_gain_db`); enforce level + gain + PEQ boost ≤ −3 dBFS;
    a quiet per-channel first sweep (the "channel alive" check) before any channel is used; a protected infrasonic HP on
    subs (e.g. BW2 15 Hz) or start sub sweeps at 15–20 Hz.
-5. **Quality gates (#8):** crawl goes through the quality gate using in-band SNR; repeats after `low_snr` step down.
-6. **One driver at a time (#12):** OS file lock on the session folder.
+5. ✅ **Quality gates (#8):** crawl goes through the quality gate using in-band SNR; repeats after `low_snr` step down.
+6. ✅ **One driver at a time (#12):** OS file lock on the session folder.
 
 ## Config to change before the next run (`~/.rewdio/config.json`)
 

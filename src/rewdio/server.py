@@ -301,6 +301,18 @@ async def solo(roles: list[str]) -> dict:
 
 
 @mcp.tool()
+async def unmute_room() -> dict:
+    """Unmute the room system (mains and subs) with their current settings, e.g. to listen after a run stopped on
+    an error (errors leave every output muted). A speaker under measurement keeps its mute."""
+    rt = runtime()
+    async with exclusive(rt) as ok:
+        if not ok:
+            return BUSY
+        await rt.rig.unmute_room()
+    return {"playing": [c.role for c in rt.session.config.room_channels]}
+
+
+@mcp.tool()
 async def list_setups() -> list[dict]:
     """Saved DSP setups, newest first: id, name, date, bass flatness, and which one is on the miniDSP now."""
     return [{k: d.get(k) for k in ("id", "name", "created", "note", "source", "bass_std_db", "active")}

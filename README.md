@@ -185,7 +185,7 @@ depends on what's available:
 | `get_report` | applied settings, predicted vs measured metrics, notes |
 | `crawl_report` | re-rank placement candidates |
 | `measure`, `analyze_measurement`, `list_measurements` | manual sweeps and summaries |
-| `set_channel`, `solo`, `get_dsp_state` | direct miniDSP control |
+| `set_channel`, `solo`, `unmute_room`, `get_dsp_state` | direct miniDSP control (errors leave every output muted; `unmute_room` to listen) |
 | `set_mic_calibration` | load the mic cal file into REW |
 | `list_setups`, `save_setup`, `recall_setup`, `delete_setup` | named, dated DSP setups for A/B listening |
 | `reset_calibration` | start over (measurements kept) |
