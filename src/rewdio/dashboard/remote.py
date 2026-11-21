@@ -124,6 +124,19 @@ def routes(runtime: Callable) -> list[Route]:
             rt.advance_in_background()  # skipped the current cell: move on to the next
         return JSONResponse(res)
 
+    async def remeasure(req):
+        if not authed(req):
+            return deny()
+        try:
+            code = str((await req.json())["code"]).upper()
+        except (ValueError, KeyError, TypeError):
+            return JSONResponse({"ok": False, "message": "send {code}"}, status_code=400)
+        rt = runtime()
+        res = rt.remeasure_cell(code)
+        if res.get("ok"):
+            rt.advance_in_background()  # brings up "move the mic to <code>"
+        return JSONResponse(res)
+
     async def pair(req):
         if not is_local(req):
             return deny()
@@ -209,4 +222,5 @@ def routes(runtime: Callable) -> list[Route]:
             Route("/api/setup/check", setup_check, methods=["POST"]),
             Route("/api/state", state), Route("/api/events", events), Route("/api/confirm", confirm, methods=["POST"]),
             Route("/api/step", step, methods=["POST"]), Route("/api/speaker/ready", speaker_ready, methods=["POST"]), Route("/api/crawl/cell", cell, methods=["POST"]),
+            Route("/api/crawl/remeasure", remeasure, methods=["POST"]),
             Route("/api/pair", pair), Route("/api/pair/qr.svg", qr)]

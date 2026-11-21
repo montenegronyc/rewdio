@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Cell, confirm, pairing, setCell, speakerReady, State, step } from "./api";
+import { Cell, confirm, pairing, remeasure, setCell, speakerReady, State, step } from "./api";
 import { ActionCard, PlaceCard, SetupCard, SpeakerCard, TargetBanner } from "./Cards";
 import { setVoiceEnabled, useBuzzOnChange, useLiveState, useSpeakOnChange, useWakeLock, voiceEnabled } from "./hooks";
 import { RoomPlan } from "./RoomPlan";
@@ -52,7 +52,12 @@ export default function App() {
     : sp ? speakerReady(sp.prompt?.key) : step()));
   const onVoice = (on: boolean) => { setVoiceEnabled(on); setVoice(on); };
   const onCell = (c: Cell) => {
-    if (c.status === "measured" || !c.near_wall) return;
+    if (c.status === "measured") {  // tap a done spot to measure it again (it becomes the next spot)
+      if (window.confirm(`Re-measure ${c.code}? It becomes the next spot; put the mic there when asked.`))
+        act(() => remeasure(c.code));
+      return;
+    }
+    if (!c.near_wall) return;
     const skip = c.enabled;
     if (window.confirm(skip ? `Skip ${c.code}?` : `Restore ${c.code}?`)) act(() => setCell(c.code, !skip));
   };

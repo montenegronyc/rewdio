@@ -301,6 +301,13 @@ async def solo(roles: list[str]) -> dict:
 
 
 @mcp.tool()
+def crawl_remeasure(code: str) -> dict:
+    """Measure a crawl spot again (e.g. "A3" after the mic was knocked). It becomes the next spot; the next
+    autopilot_step asks the user to put the mic there before sweeping."""
+    return runtime().remeasure_cell(code.upper())
+
+
+@mcp.tool()
 async def unmute_room() -> dict:
     """Unmute the room system (mains and subs) with their current settings, e.g. to listen after a run stopped on
     an error (errors leave every output muted). A speaker under measurement keeps its mute."""

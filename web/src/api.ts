@@ -69,6 +69,7 @@ export const confirm = (key?: string) => post("/api/confirm", key ? { key } : {}
 export const step = () => post("/api/step");
 export const speakerReady = (key?: string) => post("/api/speaker/ready", key ? { key } : {});
 export const setCell = (code: string, enabled: boolean) => post("/api/crawl/cell", { code, enabled });
+export const remeasure = (code: string) => post("/api/crawl/remeasure", { code });
 export const pairing = async () => (await fetch("/api/pair")).ok ? (await fetch("/api/pair")).json() : null;
 export const eventsUrl = () => `/api/events?t=${encodeURIComponent(token())}`;
 

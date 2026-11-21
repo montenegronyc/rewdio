@@ -197,6 +197,28 @@ class Runtime:
             self.last_report = {"status": "error", "error": f"{type(e).__name__}: {e}"}
             self.session.save()
 
+    def remeasure_cell(self, code: str) -> dict:
+        """Measure a crawl spot again (mic was knocked, a door banged): it becomes the next spot, and the user is
+        asked to put the mic there first, so it never re-sweeps from wherever the mic happens to be."""
+        wf = self.session.workflow
+        crawl = wf.crawl
+        measured = crawl.get("measured", {})
+        if self.busy:
+            return {"ok": False, "message": "a sweep is running; try again when it ends"}
+        if wf.phase != "SUB_CRAWL":
+            return {"ok": False, "message": "spots can only be measured again while the crawl is running"}
+        if code not in measured:
+            return {"ok": False, "message": f"{code} isn't a measured crawl spot"}
+        old = measured.pop(code)
+        crawl.setdefault("_confirmed", {}).pop(f"crawl:mic:{code}", None)  # so the mic prompt comes back
+        redo = crawl.setdefault("redo", [])
+        if code not in redo:
+            redo.append(code)
+        crawl.pop("result", None)
+        wf.pending_action = None  # the next step asks for this spot before anything else
+        self.session.save()
+        return {"ok": True, "code": code, "replaced": old["id"]}
+
     def set_cell(self, code: str, enabled: bool) -> dict:
         crawl = self.session.workflow.crawl
         codes = {c["code"] for c in self.autopilot.grid_cells()}

@@ -73,3 +73,37 @@ async def test_the_phone_shows_only_the_spots_on_the_route(sim_runtime):
     assert view["cells"] and {c["code"] for c in view["cells"]} <= route_codes
     assert not any(c["status"] == "excluded" for c in view["cells"])
     assert "wall" in rep["action"]["instructions"]
+
+
+async def _crawl_until(rt, measured: int):
+    """Step the crawl (doing the user's tasks) until `measured` spots are in, stopping at the next mic prompt."""
+    for _ in range(80):
+        rep = await rt.autopilot.step()
+        assert rep["status"] == "user_action_required", rep
+        if rep["action"]["key"].startswith("crawl:mic:") and len(rt.session.workflow.crawl.get("measured", {})) >= measured:
+            return rep
+        rt.apply_sim_effects(rep["action"], None)
+        rt.autopilot.confirm(rep["action"]["key"])
+    raise AssertionError("crawl did not get there")
+
+
+async def test_a_measured_spot_can_be_measured_again(sim_runtime):
+    rt = sim_runtime(do_sub_crawl=True)
+    await _crawl_until(rt, 3)
+    measured = rt.session.workflow.crawl["measured"]
+    old = measured["A2"]["id"]
+    res = rt.remeasure_cell("A2")
+    assert res["ok"] and "A2" not in measured
+    rep = await rt.autopilot.step()
+    assert rep["action"]["key"] == "crawl:mic:A2"  # asks for the mic first: never re-sweeps where the mic was
+    rt.apply_sim_effects(rep["action"], None)
+    rt.autopilot.confirm(rep["action"]["key"])
+    await rt.autopilot.step()
+    assert measured["A2"]["id"] != old and len(measured) == 3
+
+
+async def test_remeasuring_refuses_spots_that_are_not_measured(sim_runtime):
+    rt = sim_runtime(do_sub_crawl=True)
+    await _crawl_until(rt, 1)
+    assert not rt.remeasure_cell("F4")["ok"]
+    assert not rt.remeasure_cell("Z9")["ok"]

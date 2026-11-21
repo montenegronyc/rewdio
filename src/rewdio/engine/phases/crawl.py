@@ -59,7 +59,8 @@ class CrawlPhase(PhaseBase):
             spots = crawl.setdefault("spots", self._crawl_spots())
         crawl["spots"] = spots
         done = crawl.setdefault("measured", {})
-        for spot in spots:
+        redo = crawl.setdefault("redo", [])  # spots the user asked to measure again go first
+        for spot in sorted(spots, key=lambda sp: sp["label"] not in redo):
             lab = spot["label"]
             if lab in done:
                 continue
@@ -77,6 +78,8 @@ class CrawlPhase(PhaseBase):
             c = self._confirmed(key) or {}
             rec, _ = await self._gated_measure([sub], "crawl", lab, log, seat=seat, xyz=c.get("xyz") or spot["xyz"])
             done[lab] = {"id": rec.id, "xyz": c.get("xyz") or spot["xyz"]}
+            if lab in redo:
+                redo.remove(lab)
             log.append(f"crawl {lab}: measured")
             self.s.save()
         res = self.analyze_crawl()
