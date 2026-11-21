@@ -5,7 +5,7 @@ from __future__ import annotations
 from ...analysis.placement import Candidate, geometric_correction, rank_positions
 from ...analysis.target import target_db
 from ...config import TimingMode
-from ..grid import build_grid, route, setup_instructions
+from ..grid import build_grid, route, setup_instructions, where
 from .base import PhaseBase
 
 
@@ -18,7 +18,11 @@ class CrawlPhase(PhaseBase):
     def _crawl_spots(self) -> list[dict]:
         g = self.cfg.crawl_grid
         if g.enabled:
-            return [{"label": c["code"], "xyz": c["xyz"], "cell": c} for c in route(self.grid_cells(), g.max_cells)]
+            done = self.wf.crawl.get("measured", {})
+            at = (done.get(self.wf.mic_at) or {}).get("xyz")  # resume from where the mic is now
+            path = route(self.grid_cells(), g.max_cells, dims=self.cfg.room_dims_m if g.mode == "perimeter" else None,
+                         start_xyz=at, done=set(done))
+            return [{"label": c["code"], "xyz": c["xyz"], "cell": c} for c in path]
         n = self.cfg.crawl_positions
         dims = self.cfg.room_dims_m
         ct = self.cfg.tuning.crawl
@@ -62,8 +66,7 @@ class CrawlPhase(PhaseBase):
             key = f"crawl:mic:{lab}"
             if g.enabled:
                 c = spot["cell"]
-                text = (f"Move the mic to {lab}: {c['from_front_m'] * 100:.0f} cm from the front wall, "
-                        f"{c['from_left_m'] * 100:.0f} cm from the left wall, {g.mic_height_m * 100:.0f} cm off the "
+                text = (f"Move the mic to {lab}: {where(c, g.open_walls)}, {g.mic_height_m * 100:.0f} cm off the "
                         f"floor, pointing at the ceiling. Then tap 'Mic is here'.")
             else:
                 text = (f"Move the mic to candidate sub location {lab}"

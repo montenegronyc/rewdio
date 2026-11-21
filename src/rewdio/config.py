@@ -329,6 +329,8 @@ class CrawlGrid(_Strict):
     mode: Literal["perimeter", "full"] = Field(description="perimeter: only cells near walls (where subs go)")
     perimeter_depth_m: float = Field(description="In perimeter mode, how far from a wall a cell may be")
     excluded: list[str] = Field(description="Cells a sub cannot go (furniture, doorways), e.g. ['C1', 'D1']")
+    open_walls: list[Literal["front", "back", "left", "right"]] = Field(
+        description="Sides with no wall (opening into another room): never measured from, and no boundary for a sub")
     max_cells: int = Field(ge=3, description="Safety cap on how many cells one crawl may visit")
 
 

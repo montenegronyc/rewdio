@@ -1,7 +1,7 @@
 // Talks to Rewdio's remote API. The pairing token arrives once in the URL (?t=...) and is kept.
 export type Cell = {
   code: string; row: number; col: number; xyz: number[];
-  from_front_m: number; from_left_m: number; enabled: boolean; near_wall: boolean;
+  from_front_m: number; from_left_m: number; enabled: boolean; near_wall: boolean; where?: string;
   status: "measured" | "current" | "excluded" | "pending"; order: number | null; score_db?: number;
 };
 export type Pair = { positions: string[]; std_db: number; settings: Record<string, number | boolean> };

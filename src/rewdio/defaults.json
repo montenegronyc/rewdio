@@ -332,6 +332,7 @@
     "mode": "perimeter",
     "perimeter_depth_m": 0.6,
     "excluded": [],
+    "open_walls": [],
     "max_cells": 32
   },
   "rew_output_all": null,

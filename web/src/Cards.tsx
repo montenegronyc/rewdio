@@ -9,7 +9,7 @@ export function TargetBanner({ crawl }: { crawl: Crawl }) {
   return (
     <section className="hero" aria-live="polite">
       <h1 className="hero-code">{cell.code}</h1>
-      <p className="hero-sub">{cm(cell.from_front_m)} from front · {cm(cell.from_left_m)} from left · {cm(crawl.grid.mic_height_m)} up</p>
+      <p className="hero-sub">{cell.where ?? `${cm(cell.from_front_m)} from front · ${cm(cell.from_left_m)} from left`} · {cm(crawl.grid.mic_height_m)} up</p>
       <div className="progress"><div className="bar"><span style={{ width: `${pct}%` }} /></div>
         <span>{crawl.progress.done} of {crawl.progress.total}</span></div>
     </section>

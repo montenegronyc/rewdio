@@ -15,7 +15,7 @@ function primaryLabel(s: State): string {
   if (s.busy) return "Measuring";
   if (s.speaker && !a) return s.speaker.waiting ? "Ready" : s.speaker.done ? "Set complete" : "Measuring";
   if (!a) return s.done ? "Finished" : "Start";
-  if (a.key === "crawl:grid_setup") return "A1 is marked";
+  if (a.key === "crawl:grid_setup") return "Mic is at A1";
   if (a.key.startsWith("crawl:mic:")) return "Mic is here";
   if (a.key === "crawl:place_final") return "Subs are placed";
   return "Done";

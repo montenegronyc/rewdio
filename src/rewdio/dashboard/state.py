@@ -53,9 +53,13 @@ def crawl_view(rt) -> dict | None:
     if not (cfg.do_sub_crawl and cfg.crawl_grid.enabled and cfg.room_dims_m):
         return None
     from ..analysis.metrics import deviation
-    cells = rt.autopilot.grid_cells()
+    from ..engine.grid import where
     route_codes = [sp["label"] for sp in wf.crawl.get("spots", [])]
     measured = wf.crawl.get("measured", {})
+    # only the spots on this crawl's route (and any already measured): skipped and interior cells aren't drawn
+    cells = [c for c in rt.autopilot.grid_cells() if c["code"] in route_codes or c["code"] in measured]
+    for c in cells:
+        c["where"] = where(c, cfg.crawl_grid.open_walls, short=True)  # the phone shows the nearest-wall distances
     pa = wf.pending_action or {}
     current = pa.get("cell")
     t = cfg.tuning
