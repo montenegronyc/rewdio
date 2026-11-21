@@ -107,3 +107,45 @@ async def test_remeasuring_refuses_spots_that_are_not_measured(sim_runtime):
     await _crawl_until(rt, 1)
     assert not rt.remeasure_cell("F4")["ok"]
     assert not rt.remeasure_cell("Z9")["ok"]
+
+
+async def test_the_placement_prompt_says_where_to_move_the_sub_in_plain_words(sim_runtime):
+    rt = sim_runtime(do_sub_crawl=True)
+    cfg = rt.session.config
+    cfg.channels = [c for c in cfg.channels if c.role != "SUB2"]
+    rt.world.speaker("SUB2").sensitivity_db = 0.0
+    rt.session.save()
+    for _ in range(80):
+        rep = await rt.autopilot.step()
+        if rep["status"] == "user_action_required" and rep["action"]["key"] == "crawl:place_final":
+            break
+        rt.apply_sim_effects(rep["action"], None)
+        rt.autopilot.confirm(rep["action"]["key"])
+    text = rep["action"]["instructions"]
+    spot = rep["action"]["place"]["SUB1"]
+    assert f"from your seat to {spot}" in text and "cm from the" in text and "wall" in text
+    assert "back at your seat" in text and "[" not in text  # no raw coordinate lists
+
+
+async def test_the_user_can_choose_another_spot_than_the_winner(sim_runtime):
+    rt = sim_runtime(do_sub_crawl=True)
+    cfg = rt.session.config
+    cfg.channels = [c for c in cfg.channels if c.role != "SUB2"]
+    rt.world.speaker("SUB2").sensitivity_db = 0.0
+    rt.session.save()
+    for _ in range(80):
+        rep = await rt.autopilot.step()
+        if rep["status"] == "user_action_required" and rep["action"]["key"] == "crawl:place_final":
+            break
+        rt.apply_sim_effects(rep["action"], None)
+        rt.autopilot.confirm(rep["action"]["key"])
+    ranked = [x["position"] for x in sorted(rt.session.workflow.crawl["result"]["all_singles"], key=lambda x: x["std_db"])]
+    assert "2." in rep["action"]["instructions"] and ranked[1] in rep["action"]["instructions"]  # the ranking is shown
+    other = ranked[3]
+    res = rt.choose_spot(other)
+    assert res["ok"] and rt.session.workflow.pending_action["place"] == {"SUB1": other}
+    assert f"to {other}" in rt.session.workflow.pending_action["instructions"]
+    assert not rt.choose_spot("Z9")["ok"]
+    rt.apply_sim_effects(rt.session.workflow.pending_action, None)
+    rt.autopilot.confirm("crawl:place_final")
+    assert rt.session.workflow.crawl["placed"] == {"SUB1": other}

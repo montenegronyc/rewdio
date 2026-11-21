@@ -197,6 +197,25 @@ class Runtime:
             self.last_report = {"status": "error", "error": f"{type(e).__name__}: {e}"}
             self.session.save()
 
+    def choose_spot(self, code: str) -> dict:
+        """At the placement step, put the sub on another measured spot than the winner (a door, a sofa): the prompt
+        is rewritten for that spot, with what it costs against the winner."""
+        wf = self.session.workflow
+        pa = wf.pending_action or {}
+        measured = wf.crawl.get("measured", {})
+        subs = [c.role for c in self.session.config.subs]
+        if pa.get("key") != "crawl:place_final":
+            return {"ok": False, "message": "a spot can be chosen once the crawl has finished, at the placement step"}
+        if len(subs) != 1:
+            return {"ok": False, "message": "choosing a spot is for one sub; with two, follow the best pair"}
+        if code not in measured:
+            return {"ok": False, "message": f"{code} isn't a measured crawl spot"}
+        pa["place"] = {subs[0]: code}
+        pa["instructions"] = self.autopilot.placement_text(subs, (code, None), wf.crawl["result"])
+        pa["sim"] = {"move_subs": {subs[0]: measured[code]["xyz"]}}
+        self.session.save()
+        return {"ok": True, "place": pa["place"], "instructions": pa["instructions"]}
+
     def remeasure_cell(self, code: str) -> dict:
         """Measure a crawl spot again (mic was knocked, a door banged): it becomes the next spot, and the user is
         asked to put the mic there first, so it never re-sweeps from wherever the mic happens to be."""

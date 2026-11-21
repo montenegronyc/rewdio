@@ -301,6 +301,13 @@ async def solo(roles: list[str]) -> dict:
 
 
 @mcp.tool()
+def crawl_choose_spot(code: str) -> dict:
+    """At the placement step, put the sub on another measured spot than the winner (e.g. "A4" when the best one is
+    in a doorway). The placement prompt is rewritten with that spot and its cost against the winner."""
+    return runtime().choose_spot(code.upper())
+
+
+@mcp.tool()
 def crawl_remeasure(code: str) -> dict:
     """Measure a crawl spot again (e.g. "A3" after the mic was knocked). It becomes the next spot; the next
     autopilot_step asks the user to put the mic there before sweeping."""

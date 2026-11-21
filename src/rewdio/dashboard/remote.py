@@ -132,6 +132,9 @@ def routes(runtime: Callable) -> list[Route]:
         except (ValueError, KeyError, TypeError):
             return JSONResponse({"ok": False, "message": "send {code}"}, status_code=400)
         rt = runtime()
+        pa = rt.session.workflow.pending_action or {}
+        if pa.get("key") == "crawl:place_final":  # at the placement step a tap picks the spot instead
+            return JSONResponse(rt.choose_spot(code))
         res = rt.remeasure_cell(code)
         if res.get("ok"):
             rt.advance_in_background()  # brings up "move the mic to <code>"

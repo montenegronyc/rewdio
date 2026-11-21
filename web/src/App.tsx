@@ -17,7 +17,7 @@ function primaryLabel(s: State): string {
   if (!a) return s.done ? "Finished" : "Start";
   if (a.key === "crawl:grid_setup") return "Mic is at A1";
   if (a.key.startsWith("crawl:mic:")) return "Mic is here";
-  if (a.key === "crawl:place_final") return "Subs are placed";
+  if (a.key === "crawl:place_final") return "Sub moved, mic at seat";
   return "Done";
 }
 
@@ -52,7 +52,14 @@ export default function App() {
     : sp ? speakerReady(sp.prompt?.key) : step()));
   const onVoice = (on: boolean) => { setVoiceEnabled(on); setVoice(on); };
   const onCell = (c: Cell) => {
-    if (c.status === "measured") {  // tap a done spot to measure it again (it becomes the next spot)
+    if (c.status === "measured") {
+      if (state.pending_action?.key === "crawl:place_final") {  // placement: tap another spot to put the sub there
+        const best = Math.min(...crawl!.cells.filter((x) => x.score_db !== undefined).map((x) => x.score_db!));
+        const d = c.score_db !== undefined ? ` (${(c.score_db - best).toFixed(1)} dB vs the best)` : "";
+        if (window.confirm(`Put the sub at ${c.code} instead${d}?`)) act(() => remeasure(c.code));
+        return;
+      }
+      // during the crawl: measure it again (it becomes the next spot)
       if (window.confirm(`Re-measure ${c.code}? It becomes the next spot; put the mic there when asked.`))
         act(() => remeasure(c.code));
       return;

@@ -95,17 +95,46 @@ class CrawlPhase(PhaseBase):
             a, b = single["position"], None
             log.append(f"crawl best single spot {a}: in-band std {single['std_db']} dB ({res['confidence']})")
         xyz = {k: done[k]["xyz"] for k in (a, b) if k}
-        moves = f"{roles[0]} to {a}{' ' + str(xyz[a]) if xyz[a] else ''}"
-        if len(roles) > 1:
-            moves += f" and {roles[1]} to {b}{' ' + str(xyz[b]) if xyz[b] else ''}"
-        else:
-            pa, pb = best["positions"]
-            moves += f" (with a second sub, {pa} and {pb} together would score {best['std_db']} dB)"
-        self._ask("crawl:place_final", f"Placement result: move {moves}. Put the mic back at {seat}. Confirm when done.",
+        self._ask("crawl:place_final", self.placement_text(roles, (a, b), res),
                   mic_to=seat, recommendation=res["best_pairs"][:3], place={roles[i]: p for i, p in enumerate((a, b)[:len(roles)])},
                   sim={"move_subs": {roles[i]: xyz[p] for i, p in enumerate((a, b)[:len(roles)])}})
         self.wf.mic_at = seat
         return "BASELINE"
+
+    def placement_text(self, roles: list[str], spots: tuple, res: dict) -> str:
+        """The winner (or the user's pick) in plain words, the ranking with what each alternative costs, and what to
+        do now."""
+        seat = self.cfg.mic_positions[0]
+        ear = self.cfg.seat_xyz.get(seat)
+        mic = f", {ear[2] * 100:.0f} cm up" if ear else ""
+        if len(roles) > 1:
+            head = f"The best pair is {spots[0]} + {spots[1]}."
+            ranks = [f"{i + 1}. {'+'.join(p['positions'])}: {p['std_db']} dB" for i, p in enumerate(res["best_pairs"][:5])]
+        else:
+            singles = sorted(res["all_singles"], key=lambda x: x["std_db"])
+            top = singles[0]
+            pick = next((x for x in singles if x["position"] == spots[0]), top)
+            rank = singles.index(pick) + 1
+            head = (f"The winning spot is {top['position']}." if pick is top else
+                    f"You chose {pick['position']} (rank {rank}): {pick['std_db'] - top['std_db']:+.1f} dB vs the "
+                    f"winner {top['position']}.")
+            ranks = [f"{i + 1}. {x['position']}: {x['std_db']} dB"
+                     + (f" ({x['std_db'] - top['std_db']:+.1f})" if i else " (best)")
+                     + f", swing {x['peak_to_peak_db']:.0f} dB" for i, x in enumerate(singles[:5])]
+        moves = " and ".join(self._move_text(r, p) for r, p in zip(roles, spots) if p)
+        return (f"{head} Ranking (lower is flatter bass at your seat; swing = biggest peak to deepest dip): "
+                f"{'; '.join(ranks)}. To use another spot, tap it on the room plan. "
+                f"Now move {moves}. Then put the mic back at your seat ({seat}){mic}, pointing at the ceiling. "
+                f"Confirm when the sub{'s are' if len(roles) > 1 else ' is'} moved and the mic is at your seat.")
+
+    def _move_text(self, role: str, spot: str) -> str:
+        """'SUB1 from your seat to A1 (the best spot): 35 cm from the front wall and 35 cm from the left wall, on
+        the floor ...' in plain words, using the grid's nearest-wall distances."""
+        g = self.cfg.crawl_grid
+        cell = next((c for c in self.grid_cells() if c["code"] == spot), None) if g.enabled else None
+        here = where(cell, g.open_walls) if cell else "the spot you measured"
+        return (f"{role} from your seat to {spot}: {here}. Stand it on the floor with the centre of its woofer "
+                f"where the mic was ({g.mic_height_m * 100:.0f} cm up), facing into the room")
 
     def analyze_crawl(self) -> dict:
         done = self.wf.crawl.get("measured", {})
