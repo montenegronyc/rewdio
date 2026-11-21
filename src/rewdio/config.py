@@ -193,6 +193,11 @@ class GainStaging(_Strict):
     max_step_down_db: float
     abort_backoff_db: float
     peak_margin_db: float
+    rise_tolerance_db: float = Field(gt=0, description="After a step up of N dB the mic must measure at least N minus "
+                                                       "this much more, or the mic cannot hear the speakers: stop")
+    target_snr_db: float = Field(gt=0, description="With no mic sensitivity set, REW's SPL is uncalibrated "
+                                                   "(dBFS + 120), so staging raises the level only until REW's "
+                                                   "signal-to-noise reaches this")
 
 
 class CrawlTuning(_Strict):
@@ -230,6 +235,7 @@ class DiagnosticsTuning(_Strict):
 class PreflightTuning(_Strict):
     input_level_listen_s: float
     require_live_mic: bool
+    max_mic_rechecks: int = Field(ge=1, description="How many times a silent mic input is re-checked after \"fixed\" before the run stops")
     loopback_check: bool = Field(description="In loopback mode, prove the loopback signal arrives before sweeping")
     loopback_test_level_dbfs: float
     loopback_min_rms_dbfs: float
@@ -391,6 +397,10 @@ class SystemConfig(_Strict):
             raise ValueError(f"timing_reference_channel {self.timing_reference_channel!r} is not a channel")
         if not self.mic_positions:
             raise ValueError("need at least one mic position")
+        sw, gs = self.sweep, self.tuning.gain_staging
+        if sw.target_spl_db > sw.max_spl_db - gs.peak_margin_db - 3:
+            raise ValueError(f"sweep.target_spl_db ({sw.target_spl_db}) must sit at least peak_margin_db + 3 dB below "
+                             f"sweep.max_spl_db ({sw.max_spl_db}), or staging aims at REW's abort limit")
         if self.balance.enabled and len(self.mains) >= 2 and not set(self.balance.pair) <= set(roles):
             raise ValueError(f"balance.pair {self.balance.pair} must name two channels")
         return self

@@ -16,7 +16,8 @@ targets are met. You only get asked to do physical things: move the mic, move a 
 
 1. **Runs sweeps itself.** Configures REW's sweep, level, timing reference, protection limits and
    mic calibration (Sonarworks SoundID Reference cal file) through REW's API, gain-stages to a
-   target SPL, then measures.
+   target SPL (or, with no mic sensitivity set, to a target signal-to-noise), then measures. If a step up
+   is not heard at the mic, it stops at a quiet level instead of turning up further.
 2. **Switches channels on and off.** Each sweep solos the speakers it needs by muting the other
    miniDSP outputs (L only, R only, each sub only, L+sub, everything).
 3. **Sets delay, level and polarity on the miniDSP.** Mains are level-matched and time-aligned;
@@ -134,7 +135,8 @@ and Claude relays them. After you say done, it calls `confirm_user_action` and c
 
 ```
 PREFLIGHT      REW + miniDSP checks, mic cal, timing reference, protection; DSP baseline asserted
-GAIN_STAGING   ramps sweep level to the target SPL; backs off on clipping/SPL aborts
+GAIN_STAGING   raises the sweep level to the target SPL (target SNR if the mic is uncalibrated); stops on
+               "no signal" if a step up isn't heard, or if the SNR stays too low at the level cap
 SUB_CRAWL      (optional) sub at the seat, mic through N candidate spots, ranks placements
 BASELINE       every channel solo at every mic position (+ sum-fit sweeps if no loopback)
 SOLVE          levels, mains alignment, sub-to-sub, subs-to-mains, optional PEQ; applied to the DSP

@@ -25,20 +25,32 @@ class SetupPhase(PhaseBase):
         log.append(f"miniDSP: {devs[0].get('product_name')}")
         await r.assert_baseline()
         log.append("DSP baseline asserted on " + ", ".join(c.role for c in self.cfg.channels))
-        pf = self.cfg.tuning.preflight
-        try:
-            lv = await input_levels(r.rew, pf.input_level_listen_s)
-        except RewError as e:
-            lv = {"mic_alive": None, "error": str(e)}
-        if lv.get("mic_alive") is False and pf.require_live_mic:
-            self._ask(f"mic_dead:{self.wf.pass_no}", "REW hears nothing from the mic input (digital silence). Check "
-                      "the XLR cable, 48 V phantom power on the interface, the preamp gain, and that REW's input "
-                      "device/channel is the mic. Confirm when fixed.", levels=lv)
+        lv = await self._check_input_alive()
         if lv.get("clipping"):
             log.append("WARNING: mic input already near 0 dBFS with no signal; lower the preamp gain")
-        if self.cfg.timing_mode == TimingMode.LOOPBACK and pf.loopback_check:
+        if self.cfg.timing_mode == TimingMode.LOOPBACK and self.cfg.tuning.preflight.loopback_check:
             await self._check_loopback(log)
         return "GAIN_STAGING"
+
+    async def _check_input_alive(self) -> dict:
+        """Refuse to sweep into a digitally silent input. Re-checked after every "fixed": a confirmation alone
+        never lets the run through. This only catches digital silence; a mic that passes preamp hiss but hears
+        no speaker (e.g. no phantom power) is caught by gain staging's level-rise check."""
+        pf = self.cfg.tuning.preflight
+        for attempt in range(pf.max_mic_rechecks):
+            try:
+                lv = await input_levels(self.rig.rew, pf.input_level_listen_s)
+            except RewError as e:
+                return {"mic_alive": None, "error": str(e)}
+            if lv.get("mic_alive") is not False or not pf.require_live_mic:
+                return lv
+            again = " It is still silent after your last check." if attempt else ""
+            self._ask(f"mic_dead:{self.wf.pass_no}:{attempt}",
+                      f"REW hears nothing from the mic input (digital silence).{again} Check the XLR cable, 48 V "
+                      "phantom power on the interface, the preamp gain, and that REW's input device/channel is the "
+                      "mic. Confirm when fixed.", levels=lv)
+        raise RuntimeError(f"the mic input is still digitally silent after {pf.max_mic_rechecks} checks; fix the input "
+                           "(REW's input device, the interface, phantom power) and run the autopilot again")
 
     async def _check_loopback(self, log) -> None:
         pf = self.cfg.tuning.preflight
@@ -65,28 +77,70 @@ class SetupPhase(PhaseBase):
         self._mic_to(self.cfg.mic_positions[0], "start")
         pos = self.wf.mic_at or "unknown"
         mains = [c.role for c in self.cfg.mains] or [c.role for c in self.cfg.room_channels]
-        mid = None
+        # With no mic sensitivity, REW's "SPL" is mic dBFS + 120: it follows the preamp knob, not the speakers, so
+        # an SPL target would drive the speakers harder whenever the knob is turned down. Stage by SNR instead.
+        by_snr = self.cfg.mic_sensitivity_dbfs is None
+        mid = snr = None
+        last: tuple[float, float] | None = None  # (level played, mains-band level heard) of the previous sweep
         for _ in range(gs.max_steps):
             try:
-                _, resp = await r.measure(mains, "staging", pos)
+                rec, resp = await r.measure(mains, "staging", pos)
             except RewError as e:
                 if r.level_dbfs <= sw.min_level_dbfs:
                     raise
                 log.append(f"sweep at {r.level_dbfs} dBFS aborted ({e}); backing off {gs.abort_backoff_db:.0f} dB")
                 await r.set_level(r.level_dbfs - gs.abort_backoff_db)
+                last = None  # an aborted sweep heard nothing: don't judge the next step against it
                 continue
             mid = band_median_db(resp, *b.mains_level_hz, b.level_smoothing)
             inband = (resp.freqs > sw.start_hz * 2) & (resp.freqs < sw.end_hz)
             peak = float(np.max(smooth_db(resp.freqs, resp.mag_db, b.bass_smoothing)[inband]))
-            err = sw.target_spl_db - mid
-            log.append(f"gain staging @ {r.level_dbfs} dBFS: mains band {mid:.1f} dB SPL, peak {peak:.1f}")
-            if abs(err) < gs.tolerance_db or (err > 0 and r.level_dbfs >= sw.max_level_dbfs) \
-                    or (err < 0 and r.level_dbfs <= sw.min_level_dbfs):
+            snr = rec.extra.get("snr_db")
+            snr_txt = "" if snr is None else f", SNR {snr:.1f} dB"
+            log.append(f"gain staging @ {r.level_dbfs} dBFS: mains band {mid:.1f} dB SPL, peak {peak:.1f}{snr_txt}")
+            if last is not None:
+                await self._require_rise(last, (r.level_dbfs, mid), log)
+            last = (r.level_dbfs, mid)
+            headroom = sw.max_spl_db - gs.peak_margin_db - peak  # REW's abort limit, i.e. mic clipping uncalibrated
+            if by_snr and snr is not None:
+                # only ever louder until the SNR is enough; quieter only to keep the peak off the abort limit
+                step = min(headroom, 0.0) if snr >= gs.target_snr_db else min(gs.target_snr_db - snr, headroom)
+                if abs(step) < gs.tolerance_db:
+                    break
+            else:
+                err = sw.target_spl_db - mid
+                if abs(err) < gs.tolerance_db:
+                    break
+                step = min(err, headroom)
+            if (step > 0 and r.level_dbfs >= sw.max_level_dbfs) or (step < 0 and r.level_dbfs <= sw.min_level_dbfs):
                 break
-            step = float(np.clip(err, -gs.max_step_down_db, gs.max_step_up_db))
-            step = min(step, sw.max_spl_db - gs.peak_margin_db - peak)
-            await r.set_level(r.level_dbfs + step)
+            await r.set_level(r.level_dbfs + float(np.clip(step, -gs.max_step_down_db, gs.max_step_up_db)))
+        q = self.cfg.tuning.quality
+        if snr is not None and snr < q.min_snr_db_critical:
+            level = r.level_dbfs
+            await r.set_level(sw.level_dbfs)
+            raise RuntimeError(f"gain staging reached {level} dBFS (the most it may use is {sw.max_level_dbfs}) but "
+                               f"the SNR is only {snr:.0f} dB; sweeps need {q.min_snr_db_critical:.0f}. Turn the amps "
+                               "or the miniDSP master up, quiet the room, or raise sweep.max_level_dbfs if the "
+                               "speakers can take it, then run the autopilot again")
         self.wf.crawl["level_dbfs"] = r.level_dbfs
         # per-channel level in its own band will be compared to this to catch dead channels
         self.wf.staging_reference_db = None if mid is None else mid - 20 * float(np.log10(len(mains)))  # one channel
         return "SUB_CRAWL" if self.cfg.do_sub_crawl and not self.wf.crawl.get("result") else "BASELINE"
+
+    async def _require_rise(self, before: tuple[float, float], after: tuple[float, float], log) -> None:
+        """A step up of N dB must be heard as about N dB more. If it isn't, the mic is not hearing the speakers
+        (no phantom power, wrong input, a dead amp), and every further step would only make them louder: stop,
+        back at the quiet starting level."""
+        played = after[0] - before[0]
+        heard = after[1] - before[1]
+        tol = self.cfg.tuning.gain_staging.rise_tolerance_db
+        if played <= tol or heard >= played - tol:
+            return
+        start = self.cfg.sweep.level_dbfs
+        await self.rig.set_level(start)
+        log.append(f"no signal: the level went up {played:.0f} dB but the mic heard {heard:+.1f} dB")
+        raise RuntimeError(f"no signal at the mic: the sweep level went up {played:.0f} dB but the mic measured "
+                           f"{heard:+.1f} dB. Check 48 V phantom power, the mic cable and input, REW's input device "
+                           f"and channel, and that the amps are on. Staging stopped at a safe level ({start} dBFS); "
+                           "run the autopilot again when it is fixed")

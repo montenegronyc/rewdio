@@ -22,6 +22,9 @@ git show origin/inbox:threads/<file>.md   # read any thread with new entries
 
 ## Project notes
 
+- Open `docs/SAFETY_AUDIT.md` before touching gain staging, sweep levels, DSP write ordering, crossover tools or
+  anything that decides what reaches a speaker: it lists the open speaker-safety hazards and the fix order.
+
 - Tests: `uv sync --extra dev && uv run pytest -q` (the full suite takes about 3.5 minutes; the
   speaker and FRD tests run in seconds: `uv run pytest -q tests/test_speaker_capture.py tests/test_frd.py`).
 - Speaker measurement work (2-way drivers, VituixCAD, SoundSible handoff) is described in
