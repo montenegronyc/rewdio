@@ -5,7 +5,7 @@ what in Rewdio's code could send a signal that harms a driver? Read-only audit o
 session (`~/.rewdio/default`) and minidsp-rs's `Output::apply` ordering; the critical findings were checked against
 the code by a second reader, and #1 was reproduced in the simulator (dead mic → staging climbs −36 → −6 dBFS).
 
-**Status 2026-11-21: #1–#14 fixed** in two commits (`e69dda2`: #1–#3; the next: #4–#14). Every fix has a test in
+**Status 2026-11-21: #1–#15 fixed (#9 partly)** in two commits (`e69dda2`: #1–#3; the next: #4–#14). Every fix has a test in
 `tests/test_staging_safety.py` or `tests/test_speaker_safety.py` that failed on the old code first. What changed:
 
 - **Staging (#1–#3, #13):** stops with "no signal" when a step up isn't heard (`gain_staging.rise_tolerance_db`); stages
@@ -33,8 +33,11 @@ Still open:
 - **#9, partly:** no quiet per-channel probe before a channel's first sweep. Its risk is now bounded by the headroom
   rule, the sub's infrasonic high-pass and REW's clip abort, but a sub far more sensitive than the mains still gets
   its first sweep at the mains' staged level.
-- **#15 (found while testing): outputs not in the config are never muted.** A miniDSP output that is routed but not
-  listed as a channel (e.g. Out4 with one sub) plays every sweep. Mute unused outputs by hand until Rewdio does.
+
+Fixed 2026-11-21, found while testing the fixes above:
+- **#15: outputs not in the config were never muted.** A miniDSP output that is routed but not listed as a channel
+  (e.g. Out4 with one sub) played every sweep. Now every DSP write also mutes the outputs no channel uses
+  (`mute_unlisted_outputs`, on by default; preflight logs which), and listening doesn't unmute them.
 
 ## What reached the speakers tonight
 

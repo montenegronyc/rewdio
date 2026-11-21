@@ -372,6 +372,8 @@ class SystemConfig(_Strict):
     mic_cal_path: str | None
     mic_sensitivity_dbfs: float | None
     max_sub_gain_db: float = Field(description="Sub output gain ceiling (headroom); mains are cut instead")
+    mute_unlisted_outputs: bool = Field(description="Keep every miniDSP output that is not a channel here muted, so a "
+                                                  "routed speaker Rewdio doesn't manage never plays a sweep")
     max_main_gain_db: float = Field(description="Main output gain ceiling, for the solver and manual set_channel alike")
     sub_infrasonic_hp_hz: float | None = Field(gt=0, le=25, description="A protected high-pass added to every sub whose "
                                                                   "crossover Rewdio manages, so sweeps from 10 Hz never "

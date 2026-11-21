@@ -25,6 +25,11 @@ class SetupPhase(PhaseBase):
         log.append(f"miniDSP: {devs[0].get('product_name')}")
         await r.assert_baseline()
         log.append("DSP baseline asserted on " + ", ".join(c.role for c in self.cfg.channels))
+        idle = await r.unlisted_outputs()
+        if idle:
+            outs = ", ".join(f"unit {d} Out{i + 1}" for d, ii in idle.items() for i in ii)
+            log.append(f"muted miniDSP outputs that no channel uses ({outs}); add a channel to use one, or set "
+                       "mute_unlisted_outputs to false to leave them alone")
         lv = await self._check_input_alive()
         if lv.get("clipping"):
             log.append("WARNING: mic input already near 0 dBFS with no signal; lower the preamp gain")

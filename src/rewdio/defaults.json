@@ -60,6 +60,7 @@
   "mic_sensitivity_dbfs": null,
   "max_sub_gain_db": 6.0,
   "max_main_gain_db": 3.0,
+  "mute_unlisted_outputs": true,
   "sub_infrasonic_hp_hz": 15.0,
   "allow_peq": true,
   "max_peq_boost_db": 0.0,

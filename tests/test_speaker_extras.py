@@ -108,4 +108,5 @@ async def test_distortion_guards_its_reference_and_calibration_and_restores_on_f
         await rt.speaker.distortion("LH", [80.0])
     assert rt.session.dsp.get("LH").crossover == rt.session.config.channel("LH").crossover  # not left raw
     assert rt.world.dsp[1].xover and len(rt.world.dsp[1].xover) > 1
-    assert rt.rig.level_dbfs == before and not any(o.mute for o in rt.world.dsp.values())
+    assert rt.rig.level_dbfs == before  # its channels unmuted again; outputs no channel uses stay muted (#15)
+    assert not any(rt.world.dsp[c.dsp_output].mute for c in rt.session.config.channels)

@@ -23,6 +23,7 @@ class Rig:
         lvl = session.workflow.crawl.get("level_dbfs", sw.level_dbfs)  # never trust a stored level unclamped
         self.level_dbfs = round(max(sw.min_level_dbfs, min(sw.max_level_dbfs, lvl)), 1)
         self._rew_ready = False
+        self._unlisted: dict[int, list[int]] | None = None  # per unit: outputs no channel uses (asked once)
 
     @property
     def cfg(self) -> SystemConfig:
@@ -85,6 +86,8 @@ class Rig:
             settings.setdefault(dev, []).append(self._patch(r, o.model_copy(update={"mute": True}), False, include_peq))
             if not o.mute:
                 unmute.setdefault(dev, []).append(self._patch(r, o, mute_only=True))
+        for dev, idle in (await self.unlisted_outputs()).items():  # with every write: they can never play
+            settings.setdefault(dev, []).extend(MiniDSPClient.output_patch(i, mute=True) for i in idle)
         # Marked out of sync BEFORE the write and cleared only after it lands, so a cancelled call or a killed
         # process (not only an exception) makes the next write re-send everything.
         self.dirty = True
@@ -93,6 +96,22 @@ class Rig:
                 await self.dsp.set_outputs(patches, dev)
         self.s.dsp = DspState.model_validate({**new.model_dump(), "unsynced": False})
         self.s.save()
+
+    async def unlisted_outputs(self) -> dict[int, list[int]]:
+        """Outputs of each miniDSP unit that no channel uses ({} if mute_unlisted_outputs is off). A speaker on one
+        would otherwise play every sweep unmanaged: Rewdio never sets its crossover, gain or mute."""
+        if not self.cfg.mute_unlisted_outputs:
+            return {}
+        if self._unlisted is None:
+            found: dict[int, list[int]] = {}
+            for dev in self.cfg.dsp_devices:
+                n = len((await self.dsp.status(dev)).get("output_levels") or [])
+                used = {c.dsp_output for c in self.cfg.channels if self.cfg.device_of(c.role) == dev}
+                idle = [i for i in range(n) if i not in used]
+                if idle:
+                    found[dev] = idle
+            self._unlisted = found
+        return self._unlisted
 
     @property
     def dirty(self) -> bool:

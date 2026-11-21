@@ -224,3 +224,30 @@ async def test_loopback_check_stops_the_run_if_rew_will_not_stop_the_noise(sim_r
     rep = await rt.autopilot.step()
     assert rep["status"] == "error" and "generator" in rep["error"].lower()
     assert not [m for m in rt.session.measurements if m.kind == "staging"]
+
+
+# -- #15: outputs the config doesn't list ---------------------------------------------------------------
+
+async def test_outputs_missing_from_the_config_are_muted_before_anything_plays(sim_runtime):
+    rt = sim_runtime()
+    cfg = rt.session.config
+    cfg.channels = [c for c in cfg.channels if c.role != "SUB2"]  # Out4 still routed and plugged in, just unlisted
+    rt.session.save()
+    out4 = rt.world.dsp[3]
+    assert not out4.mute
+    await rt.rig.assert_baseline()
+    rec, _ = await rt.rig.measure(["SUB1"], "manual", "MLP")
+    assert out4.mute  # SUB2 did not play in SUB1's sweep
+    await rt.rig.unmute_room()
+    assert out4.mute  # and listening does not bring an unmanaged speaker back
+
+
+async def test_unlisted_outputs_can_be_left_alone_when_asked(sim_runtime):
+    rt = sim_runtime()
+    cfg = rt.session.config
+    cfg.channels = [c for c in cfg.channels if c.role != "SUB2"]
+    cfg.mute_unlisted_outputs = False
+    rt.session.save()
+    await rt.rig.assert_baseline()
+    await rt.rig.measure(["SUB1"], "manual", "MLP")
+    assert not rt.world.dsp[3].mute
