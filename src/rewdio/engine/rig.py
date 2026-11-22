@@ -10,6 +10,7 @@ from ..config import ChannelKind, SystemConfig, TimingMode
 from ..minidsp.client import MiniDSPClient
 from ..minidsp.state import DspState, OutputState, XoverFilter, xover_sections
 from ..rew.client import RewClient, RewError
+from . import loudness
 from .store import MeasurementRecord, Session
 
 
@@ -300,6 +301,13 @@ class Rig:
 
     async def measure(self, roles: list[str], kind: str, position: str, title: str | None = None,
                       **extra) -> tuple[MeasurementRecord, Response]:
+        """Every sweep. A room channel not yet heard at this placement gets a quiet probe first (loudness.guard)."""
+        await loudness.guard(self, list(roles), kind, position)
+        return await self.sweep_once(roles, kind, position, title, **extra)
+
+    async def sweep_once(self, roles: list[str], kind: str, position: str, title: str | None = None,
+                         **extra) -> tuple[MeasurementRecord, Response]:
+        """One sweep at the current level, with no loudness guard: call measure() instead."""
         await self.route(roles)
         title = title or f"{'+'.join(roles)} @{position} ({kind}, pass {self.s.workflow.pass_no})"
         summary = await self.rew.sweep(title, notes=f"rewdio {kind}")

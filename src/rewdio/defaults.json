@@ -201,6 +201,13 @@
       "rise_tolerance_db": 4.0,
       "target_snr_db": 30.0
     },
+    "loudness_guard": {
+      "probe_drop_db": 20.0,
+      "max_above_mains_db": 3.0,
+      "crawl_extra_db": 8.0,
+      "max_attempts": 3,
+      "confirm_raises": true
+    },
     "crawl": {
       "wall_distance_m": 0.35,
       "mic_height_m": 0.25,

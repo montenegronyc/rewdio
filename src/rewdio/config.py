@@ -17,7 +17,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .config_safety import enforce_safety
+from .config_safety import LoudnessGuard, enforce_safety
 from .minidsp.state import XoverFilter
 
 
@@ -263,6 +263,7 @@ class Tuning(_Strict):
     pair: PairTuning
     peq: PeqTuning
     gain_staging: GainStaging
+    loudness_guard: LoudnessGuard
     crawl: CrawlTuning
     autopilot: AutopilotTuning
     quality: QualityTuning

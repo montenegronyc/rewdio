@@ -4,10 +4,25 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from .minidsp.state import XoverFilter
 
 if TYPE_CHECKING:
     from .config import SystemConfig
+
+
+class LoudnessGuard(BaseModel):
+    """Nothing plays loud before it has been heard quietly (2026-11-21: a sub sweep shook the house)."""
+    model_config = ConfigDict(extra="forbid")
+    probe_drop_db: float = Field(gt=0, description="Each room channel's first sweep (per placement) is a probe this "
+                                                   "many dB below the run level")
+    max_above_mains_db: float = Field(description="A channel heard louder than one main by more than this stops the "
+                                                  "run until its own gain is turned down")
+    crawl_extra_db: float = Field(ge=0, description="Extra allowance in the crawl: the mic sits by walls and corners, "
+                                                    "which read hotter than the seat for the same sub drive")
+    max_attempts: int = Field(ge=1, description="Probes of a channel that stays too loud before the run stops")
+    confirm_raises: bool = Field(description="Gain staging asks before raising the level above where it started")
 
 
 def enforce_safety(cfg: SystemConfig) -> None:

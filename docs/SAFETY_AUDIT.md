@@ -5,7 +5,7 @@ what in Rewdio's code could send a signal that harms a driver? Read-only audit o
 session (`~/.rewdio/default`) and minidsp-rs's `Output::apply` ordering; the critical findings were checked against
 the code by a second reader, and #1 was reproduced in the simulator (dead mic → staging climbs −36 → −6 dBFS).
 
-**Status 2026-11-21: #1–#15 fixed (#9 partly)** in two commits (`e69dda2`: #1–#3; the next: #4–#14). Every fix has a test in
+**Status 2026-11-21: #1–#15 fixed** in two commits (`e69dda2`: #1–#3; the next: #4–#14). Every fix has a test in
 `tests/test_staging_safety.py` or `tests/test_speaker_safety.py` that failed on the old code first. What changed:
 
 - **Staging (#1–#3, #13):** stops with "no signal" when a step up isn't heard (`gain_staging.rise_tolerance_db`); stages
@@ -29,10 +29,16 @@ the code by a second reader, and #1 was reproduced in the simulator (dead mic �
 - **One driver (#12):** a session folder holds a `driver.lock` with the owning pid; a second live process is refused.
 - **Loopback noise (#14):** if REW's generator won't stop, the run stops (and the error path mutes everything).
 
-Still open:
-- **#9, partly:** no quiet per-channel probe before a channel's first sweep. Its risk is now bounded by the headroom
-  rule, the sub's infrasonic high-pass and REW's clip abort, but a sub far more sensitive than the mains still gets
-  its first sweep at the mains' staged level.
+**#9, closed 2026-11-21 evening, after it happened on the real rig.** I had rated the remaining half "not
+essential" because other limits bounded the risk to the driver. They didn't bound the loudness: with SNR-based staging
+a noisier evening staged at −21.3 dBFS instead of −30, and the sub's first sweep from a corner, about 5.5 dB over the
+mains, shook the house. Fixed by `engine/loudness.py`: before a sub's first sweep at each placement, a quiet probe
+(`loudness_guard.probe_drop_db` below the run level); if it would play more than `max_above_mains_db` (+3, plus
+`crawl_extra_db` in the crawl) over one main, everything is muted and the user is asked to turn its own gain down,
+then it is probed again (`max_attempts`, then the run stops). Gain staging also asks before raising the level above
+its start (`confirm_raises`). Tests: `tests/test_loudness_guard.py`, each failing on the old code, including a replay
+of that evening. Lesson: a listed hazard is not optional because other guards protect the hardware; loudness is a
+hazard in itself.
 
 Fixed 2026-11-21, found while testing the fixes above:
 - **#15: outputs not in the config were never muted.** A miniDSP output that is routed but not listed as a channel

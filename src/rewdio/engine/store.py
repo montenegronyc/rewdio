@@ -35,6 +35,8 @@ class WorkflowState(BaseModel):
     pending_action: dict | None = None
     quality: list[dict] = Field(default_factory=list)  # findings from the measurement-quality gate
     staging_reference_db: float | None = None
+    probed: dict = Field(default_factory=dict)  # "role:placement" -> level heard by its quiet probe (loudness guard)
+    probe_attempts: dict = Field(default_factory=dict)  # role -> probes that found it too loud
     mic_at: str | None = None  # position label where the mic currently is (as far as we know)
     crawl: dict = Field(default_factory=dict)
     history: list[dict] = Field(default_factory=list)

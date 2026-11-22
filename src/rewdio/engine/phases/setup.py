@@ -120,7 +120,11 @@ class SetupPhase(PhaseBase):
                 step = min(err, headroom)
             if (step > 0 and r.level_dbfs >= sw.max_level_dbfs) or (step < 0 and r.level_dbfs <= sw.min_level_dbfs):
                 break
-            await r.set_level(r.level_dbfs + float(np.clip(step, -gs.max_step_down_db, gs.max_step_up_db)))
+            new = round(min(sw.max_level_dbfs, r.level_dbfs + float(np.clip(step, -gs.max_step_down_db,
+                                                                             gs.max_step_up_db))), 1)
+            if step > 0 and new > sw.level_dbfs + 0.05:
+                new = self._approved_raise(new, snr, mid, log)  # asks (NeedUser) above anything approved so far
+            await r.set_level(new)
         q = self.cfg.tuning.quality
         if snr is not None and snr < q.min_snr_db_critical:
             level = r.level_dbfs
@@ -130,9 +134,32 @@ class SetupPhase(PhaseBase):
                                "or the miniDSP master up, quiet the room, or raise sweep.max_level_dbfs if the "
                                "speakers can take it, then run the autopilot again")
         self.wf.crawl["level_dbfs"] = r.level_dbfs
+        self.wf.probed, self.wf.probe_attempts = {}, {}  # a new run level: every channel is probed quietly again
         # per-channel level in its own band will be compared to this to catch dead channels
         self.wf.staging_reference_db = None if mid is None else mid - 20 * float(np.log10(len(mains)))  # one channel
         return "SUB_CRAWL" if self.cfg.do_sub_crawl and not self.wf.crawl.get("result") else "BASELINE"
+
+    def _approved_raise(self, new: float, snr: float | None, mid: float, log) -> float:
+        """Staging never turns the speakers up on its own: a level above the start needs the user's OK. Returns the
+        level to use (never above what was approved); asks, back at the start level, if `new` is higher."""
+        sw, gs = self.cfg.sweep, self.cfg.tuning.gain_staging
+        if not self.cfg.tuning.loudness_guard.confirm_raises:
+            return new
+        prefix = f"staging:raise:{self.wf.pass_no}:"
+        ok = [float(k[len(prefix):]) for k in self.wf.crawl.get("_confirmed", {}) if k.startswith(prefix)]
+        approved = max(ok, default=sw.level_dbfs)
+        if new <= approved + gs.tolerance_db:
+            return min(new, approved)
+        now = self.rig.level_dbfs
+        why = (f"the signal-to-noise is {snr:.0f} dB and it aims for {gs.target_snr_db:.0f}" if snr is not None
+               else f"the mains measure {mid:.0f} and it aims for {sw.target_spl_db:.0f}")
+        log.append(f"staging: asking before raising the level from {now} to {new} dBFS")
+        self._ask(f"{prefix}{new:.0f}",
+                  f"Gain staging wants to raise the sweep level from {now} to {new:.0f} dBFS (each step is louder; the "
+                  f"most it may ever use is {sw.max_level_dbfs:.0f} dBFS): at {now} dBFS {why}. Confirm to allow up to "
+                  f"{new:.0f} dBFS. If the last sweep already felt loud, don't: quiet the room instead, or accept "
+                  "the lower SNR by lowering gain_staging.target_snr_db.", proposed_dbfs=new)
+        return new  # not reached: _ask raises until the user confirms
 
     async def _require_rise(self, before: tuple[float, float], after: tuple[float, float], log) -> None:
         """A step up of N dB must be heard as about N dB more. If it isn't, the mic is not hearing the speakers

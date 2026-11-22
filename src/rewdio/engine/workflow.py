@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .loudness import TooLoud
 from .phases.base import NeedUser
 from .phases.baseline import BaselinePhase
 from .phases.crawl import CrawlPhase
@@ -68,12 +69,32 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
             return self._report("done", log)
         except NeedUser as e:
             return self._report("user_action_required", log, action=e.action)
+        except TooLoud as e:  # caught by a quiet probe: silence, then ask for the channel's own gain to come down
+            return await self._too_loud(e, log)
         except Exception as e:  # REW abort, timeout, unreachable miniDSP...: stop safely and say why
             log.append(f"stopped in {self.wf.phase}: {type(e).__name__}: {e}")
             muted = await self._make_safe(log)
             return self._report("error", log, error=f"{type(e).__name__}: {e}", outputs_muted=muted,
                                 note="Every output is muted. Fix the cause and call autopilot_step again (it resumes "
                                      "where it stopped), or call unmute_room to listen.")
+
+    async def _too_loud(self, e: TooLoud, log) -> dict:
+        n = self.wf.probe_attempts.get(e.role, 0)
+        log.append(f"quiet probe: {e} (attempt {n})")
+        muted = await self._make_safe(log)
+        if n >= self.cfg.tuning.loudness_guard.max_attempts:
+            return self._report("error", log, error=f"{e.role} is still {e.over_db:.0f} dB louder than the mains after "
+                                f"{n} quiet probes; stopped before it played at full level. Turn its own amp gain "
+                                "down and run the autopilot again", outputs_muted=muted)
+        action = {"key": f"probe:{e.role}:{self.wf.pass_no}:{n}",
+                  "instructions": f"Loudness check: a quiet test sweep says {e.role} would play about {e.over_db:.0f} dB "
+                                  f"louder than the mains at the measuring level, so I stopped before it played loud. "
+                                  f"Turn {e.role}'s own amp gain down by about {e.turn_down_db} dB (when unsure, more), "
+                                  "then confirm: I'll check it again quietly before anything plays at full level.",
+                  "role": e.role}
+        self.wf.pending_action = action
+        self.s.save()
+        return self._report("user_action_required", log, action=action)
 
     async def _make_safe(self, log) -> bool:
         """After a failure nothing should play: REW may still be mid-sweep or have its generator on, and the DSP
