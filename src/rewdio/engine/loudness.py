@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from ..analysis.quality import sub_inband_snr_db
 from ..analysis.response import band_median_db
 from ..config import ChannelKind
 
@@ -29,6 +30,14 @@ class TooLoud(Exception):
         self.role, self.over_db, self.turn_down_db = role, over_db, turn_down_db
 
 
+class NotHeard(Exception):
+    """No quiet probe, up to `loudest_dbfs`, heard the sub: it can't be vouched for, so it isn't played loud."""
+
+    def __init__(self, role: str, loudest_dbfs: float):
+        super().__init__(f"the quiet probes could not hear {role} (up to {loudest_dbfs} dBFS)")
+        self.role, self.loudest_dbfs = role, loudest_dbfs
+
+
 def placement(kind: str) -> str:
     """Where the speaker is for this sweep: in the crawl the sub sits at the seat; otherwise at its own place."""
     return "crawl" if kind == "crawl" else "room"
@@ -39,6 +48,33 @@ def heard_db(rig: Rig, role: str, resp) -> float:
     lo, hi = ((b.sub_level_lo_hz, cfg.crossover_hz * b.sub_level_xo_factor)
               if cfg.channel(role).kind == ChannelKind.SUB else b.mains_level_hz)
     return band_median_db(resp, lo, hi, b.level_smoothing)
+
+
+def _probe_levels(cfg, run: float) -> list[float]:
+    """From `probe_drop_db` below the run level, up in `probe_step_db` steps, never closer than one step to it."""
+    g = cfg.tuning.loudness_guard
+    level = max(cfg.sweep.min_level_dbfs, run - g.probe_drop_db)
+    levels = [level]
+    while levels[-1] + g.probe_step_db <= run - g.probe_step_db + 1e-6:
+        levels.append(round(levels[-1] + g.probe_step_db, 1))
+    return levels
+
+
+async def _probe_until_heard(rig: Rig, role: str, kind: str, position: str, run: float) -> float | None:
+    """The sub's level scaled to the run level, from the quietest probe that clearly hears it; None if none does."""
+    g = rig.cfg.tuning.loudness_guard
+    for quiet in _probe_levels(rig.cfg, run):
+        rig.level_dbfs = quiet
+        try:
+            rec, resp = await rig.sweep_once([role], "probe", position,
+                                             title=f"{role} @{position} (quiet probe {quiet} dBFS, {placement(kind)})")
+        finally:
+            rig.level_dbfs = run
+        rig.s.measurements.remove(rec)  # a probe is a safety check, never data for the solver
+        snr = sub_inband_snr_db(rig.cfg, resp, [role])
+        if snr is not None and snr >= g.min_heard_db:
+            return heard_db(rig, role, resp) + (run - quiet)
+    return None
 
 
 async def guard(rig: Rig, roles: list[str], kind: str, position: str) -> None:
@@ -57,15 +93,12 @@ async def guard(rig: Rig, roles: list[str], kind: str, position: str) -> None:
         if key in wf.probed:
             continue
         run = rig.level_dbfs
-        quiet = max(cfg.sweep.min_level_dbfs, run - g.probe_drop_db)
-        rig.level_dbfs = quiet
-        try:
-            rec, resp = await rig.sweep_once([role], "probe", position,
-                                             title=f"{role} @{position} (quiet probe, {placement(kind)})")
-        finally:
-            rig.level_dbfs = run
-        rig.s.measurements.remove(rec)  # a probe is a safety check, never data for the solver
-        at_run = heard_db(rig, role, resp) + (run - quiet)
+        heard = await _probe_until_heard(rig, role, kind, position, run)
+        if heard is None:
+            wf.probe_attempts[role] = wf.probe_attempts.get(role, 0) + 1
+            rig.s.save()
+            raise NotHeard(role, _probe_levels(cfg, run)[-1])
+        at_run = heard
         over = at_run - ref
         allowed = g.max_above_mains_db + (g.crawl_extra_db if placement(kind) == "crawl" else 0.0)
         if over > allowed:

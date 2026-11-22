@@ -19,6 +19,11 @@ class LoudnessGuard(BaseModel):
                                                    "many dB below the run level")
     max_above_mains_db: float = Field(description="A channel heard louder than one main by more than this stops the "
                                                   "run until its own gain is turned down")
+    min_heard_db: float = Field(gt=0, description="A probe vouches for a sub only if the sub is this far above the "
+                                                "room noise in its own band; a probe that hears nothing proves nothing")
+    probe_step_db: float = Field(gt=0, description="A probe that hears nothing tries again this much louder (a sub "
+                                                 "in auto-standby may need it to wake), always staying below the "
+                                                 "run level")
     crawl_extra_db: float = Field(ge=0, description="Extra allowance in the crawl: the mic sits by walls and corners, "
                                                     "which read hotter than the seat for the same sub drive")
     max_attempts: int = Field(ge=1, description="Probes of a channel that stays too loud before the run stops")

@@ -154,11 +154,11 @@ async def test_crawl_will_not_record_a_sweep_of_a_silent_sub(sim_runtime):
         asked.append(key)
         if key.startswith("crawl:mic:"):
             rt.world.speaker("SUB1").sensitivity_db = 0.0  # the sub goes silent (cable out) at the first spot
-        if key.startswith("quality:"):
+        if key.startswith(("quality:", "probe:")):
             break
         rt.apply_sim_effects(rep["action"], None)
         rt.autopilot.confirm(key)
-    assert any(k.startswith("quality:") for k in asked), asked
+    assert any(k.startswith(("quality:", "probe:")) for k in asked), asked  # the probe now catches it first
     assert not rt.session.workflow.crawl.get("measured")  # nothing recorded from the silent sweep
 
 

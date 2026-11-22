@@ -39,6 +39,10 @@ then it is probed again (`max_attempts`, then the run stops). Gain staging also 
 its start (`confirm_raises`). Tests: `tests/test_loudness_guard.py`, each failing on the old code, including a replay
 of that evening. Lesson: a listed hazard is not optional because other guards protect the hardware; loudness is a
 hazard in itself.
+The same evening the first real probe heard nothing (the Rythmik in auto-standby at −50 dBFS) and still passed:
+a probe now vouches only if it hears the sub `min_heard_db` above the noise in its band, otherwise it steps up by
+`probe_step_db` (never within one step of the run level) and, if it never hears it, the run stops and asks
+(tests: `test_a_probe_that_hears_nothing_never_vouches_for_a_hot_sub`, `..._never_hear_is_not_swept_at_full_level`).
 
 Fixed 2026-11-21, found while testing the fixes above:
 - **#15: outputs not in the config were never muted.** A miniDSP output that is routed but not listed as a channel

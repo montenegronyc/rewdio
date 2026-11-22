@@ -42,14 +42,13 @@ async def test_dead_channel_is_caught_before_solving(sim_runtime):
     rt.world.speaker("SUB2").sensitivity_db = 40.0  # amp off / cable out
     for _ in range(10):
         rep = await rt.autopilot.step()
-        if rep["status"] != "user_action_required" or rep["action"]["key"].startswith("quality:"):
+        if rep["status"] != "user_action_required" or rep["action"]["key"].startswith(("quality:", "probe:")):
             break
         rt.apply_sim_effects(rep["action"], None)
         rt.autopilot.confirm()
-    assert rep["action"]["key"].startswith("quality:")
-    assert "SUB2" in rep["action"]["instructions"]
-    codes = {f["code"] for f in rep["action"]["findings"]}
-    assert "silent_channel" in codes
+    # a dead sub is now caught by its quiet probe, before it is ever swept at full level (loudness guard)
+    assert rep["action"]["key"].startswith("probe:SUB2")
+    assert "SUB2" in rep["action"]["instructions"] and "hear" in rep["action"]["instructions"]
     # user fixes it; the loop re-measures and finishes
     rt.world.speaker("SUB2").sensitivity_db = 118.0
     rt.autopilot.confirm()

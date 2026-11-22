@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .loudness import TooLoud
+from .loudness import NotHeard, TooLoud
 from .phases.base import NeedUser
 from .phases.baseline import BaselinePhase
 from .phases.crawl import CrawlPhase
@@ -71,6 +71,8 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
             return self._report("user_action_required", log, action=e.action)
         except TooLoud as e:  # caught by a quiet probe: silence, then ask for the channel's own gain to come down
             return await self._too_loud(e, log)
+        except NotHeard as e:  # the quiet probes heard nothing: never vouch for it, never play it loud
+            return await self._not_heard(e, log)
         except Exception as e:  # REW abort, timeout, unreachable miniDSP...: stop safely and say why
             log.append(f"stopped in {self.wf.phase}: {type(e).__name__}: {e}")
             muted = await self._make_safe(log)
@@ -91,6 +93,26 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
                                   f"louder than the mains at the measuring level, so I stopped before it played loud. "
                                   f"Turn {e.role}'s own amp gain down by about {e.turn_down_db} dB (when unsure, more), "
                                   "then confirm: I'll check it again quietly before anything plays at full level.",
+                  "role": e.role}
+        self.wf.pending_action = action
+        self.s.save()
+        return self._report("user_action_required", log, action=action)
+
+    async def _not_heard(self, e: NotHeard, log) -> dict:
+        n = self.wf.probe_attempts.get(e.role, 0)
+        log.append(f"quiet probe: {e} (attempt {n})")
+        muted = await self._make_safe(log)
+        if n >= self.cfg.tuning.loudness_guard.max_attempts:
+            return self._report("error", log, error=f"{e.role} could not be heard by quiet probes after {n} tries; "
+                                "stopped before playing it at full level. Check it is on (LED lit, not in standby), "
+                                "cabled to its miniDSP output, and its own gain is up, then run the autopilot again",
+                                outputs_muted=muted)
+        ch = self.cfg.channel(e.role)
+        action = {"key": f"probe:{e.role}:{self.wf.pass_no}:{n}",
+                  "instructions": f"Loudness check: quiet test sweeps up to {e.loudest_dbfs} dBFS couldn't hear {e.role}, "
+                                  "so I won't play it loud. Check it is on and awake (power LED lit; set auto-on to "
+                                  f"ON if it has standby), cabled to miniDSP output {ch.dsp_output + 1}, and its own gain "
+                                  "is not at minimum. Confirm when done: I'll check it quietly again first.",
                   "role": e.role}
         self.wf.pending_action = action
         self.s.save()
