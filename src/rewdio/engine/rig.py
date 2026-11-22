@@ -62,6 +62,11 @@ class Rig:
             if c.crossover is not None and new.get(c.role).crossover is None:
                 new.get(c.role).crossover = list(c.crossover)
                 filled = True
+            elif c.kind != ChannelKind.DRIVER and c.crossover is not None and new.get(c.role).crossover != c.crossover:
+                # a room channel's crossover belongs to the config (as in apply): after the config's crossover
+                # changes, the remembered one is stale, and refusing it would also refuse the error path's mute
+                new.get(c.role).crossover = list(c.crossover)
+                filled = True
             need = [f for f in c.crossover or [] if f.protect]
             have = new.get(c.role).crossover or []
             missing = [f for f in need if f not in have]

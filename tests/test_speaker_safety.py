@@ -251,3 +251,23 @@ async def test_unlisted_outputs_can_be_left_alone_when_asked(sim_runtime):
     await rt.rig.assert_baseline()
     await rt.rig.measure(["SUB1"], "manual", "MLP")
     assert not rt.world.dsp[3].mute
+
+
+# -- a configured crossover change ---------------------------------------------------------------------
+
+async def test_changing_the_configured_crossover_does_not_lock_out_writes_or_the_safety_mute(sim_runtime):
+    # 2026-11-22: moving the crossover 80 -> 100 Hz in the config made every write (the error path's mute included)
+    # refuse, because the remembered DSP state still held the old 80 Hz filters
+    rt = sim_runtime()
+    for c in rt.session.config.channels:  # protected, as in the real config
+        c.crossover = [HP80.model_copy(update={"protect": True}) if c.kind.value == "main"
+                       else LP80.model_copy(update={"protect": True})]
+    rt.session.save()
+    await rt.rig.assert_baseline()
+    hp100, lp100 = (XoverFilter(kind=k, topology="LR4", freq_hz=100, protect=True) for k in ("HP", "LP"))
+    for c in rt.session.config.channels:
+        c.crossover = [hp100] if c.kind.value == "main" else [lp100]
+    await rt.rig.solo([])  # the first write after the change (the error path's mute is one) is not refused
+    assert all(d.mute for i, d in rt.world.dsp.items() if i in (0, 1, 2))
+    assert rt.session.dsp.get("L").crossover == [hp100]  # and it carries the new crossover to the hardware
+    assert rt.session.dsp.get("SUB1").crossover[0] == lp100
