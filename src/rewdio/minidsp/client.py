@@ -1,7 +1,8 @@
 """Async client for the minidsp-rs daemon HTTP API.
 
 Endpoints: GET /devices, GET /devices/{i}, POST /devices/{i}/config with a
-partial Config ({"outputs": [{"index": n, "gain": ..., "mute": ..., ...}]}).
+partial Config ({"outputs": [{"index": n, "gain": ..., "mute": ..., ...}]}, or
+{"inputs": [{"index": i, "routing": [{"index": out, "mute": ...}]}]} for the routing matrix).
 """
 
 from __future__ import annotations
@@ -71,6 +72,17 @@ class MiniDSPClient:
     async def set_outputs(self, outputs: list[dict], device: int | None = None) -> None:
         if outputs:
             await self.apply({"outputs": outputs}, device)
+
+    async def set_routing(self, inputs: list[dict], device: int | None = None) -> None:
+        if inputs:
+            await self.apply({"inputs": inputs}, device)
+
+    @staticmethod
+    def routing_patch(input_index: int, enabled: dict[int, bool]) -> dict:
+        """One input's routing-matrix entries: output index -> routed (True) or not. minidsp-rs's RoutingEntry
+        {"index": out, "mute": m} calls set_output_enable(out, !m) (model.rs Input::apply); gains are never written."""
+        return {"index": input_index,
+                "routing": [{"index": o, "mute": not on} for o, on in sorted(enabled.items())]}
 
     @staticmethod
     def output_patch(index: int, *, gain_db: float | None = None, mute: bool | None = None,

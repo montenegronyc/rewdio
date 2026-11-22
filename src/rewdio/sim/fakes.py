@@ -19,6 +19,10 @@ from .world import P_REF, World
 
 IR_FS = 12000.0
 SWEEP_LENGTHS = {"128k", "256k", "512k", "1M", "2M", "4M"}
+CHIRP_HZ = (5000.0, 20000.0)  # REW's acoustic timing signal (REW help, "Making Measurements")
+CHIRP_HEARD_DB = 10.0  # the chirp is found if its band is this far above the room noise at the mic
+MISSED_CHIRP_S = 0.25  # a missed chirp: REW times the sweep from wherever it locked on
+ACOUSTIC_PREROLL_S = 0.1  # impulse samples kept before the reference instant (startTime is negative)
 
 
 class FakeRew:
@@ -43,6 +47,9 @@ class FakeRew:
         self.generator = {"signal": "pinknoise", "level": -20.0, "playing": False}
         self.loopback_connected = True  # tests unplug it
         self.fail_measures = 0  # tests: fail this many sweeps (fault injection)
+        self.ref_output_channel = "R"  # acoustic timing: where REW plays its chirp
+        self.missing_reference = "garbage"  # a missed chirp: "garbage" timing (silent) or an "error" (REW refuses)
+        self.ir_describes_timing = True  # tests: REW's impulse response may not name its timing reference
 
     # -- helpers -----------------------------------------------------------------
 
@@ -82,7 +89,17 @@ class FakeRew:
             self.last_error = "Measurement aborted: input clipping"
             return self._err(self.last_error)
         t_ref = None
-        if self.timing.lower().startswith("none"):
+        t_chirp = 0.0  # acoustic: the chirp's arrival, which every time in this measurement is relative to
+        if self.timing.lower().startswith("acoustic"):
+            t_chirp = self._chirp_arrival()
+            if t_chirp is None:
+                if self.missing_reference == "error":
+                    self.last_error = "Timing reference not detected"
+                    return self._err(self.last_error, status=500)
+                t_chirp = MISSED_CHIRP_S  # REW locked onto noise: a time base that means nothing
+            h = h * np.exp(2j * np.pi * f * t_chirp)
+            t_ref = self.timing
+        elif self.timing.lower().startswith("none"):
             # REW without a timing reference puts the IR peak at t=0
             fl = np.arange(1.0, 4000.0, 1.0)
             hl = w.response(fl, self.level_dbfs, self.output_channel, noise=False)
@@ -98,16 +115,33 @@ class FakeRew:
         live = db > db.max() - 20  # SNR over the band the speaker actually reproduces, as REW reports it
         snr = float(np.mean(db[live]) - noise_spl)
         fl = np.arange(1.0, IR_FS / 2)  # impulse response for REW's /impulse-response, band-limited for speed
-        ir = np.fft.irfft(np.concatenate([[0], w.response(fl, self.level_dbfs, self.output_channel, noise=False)
-                                          / P_REF]), n=int(IR_FS))
+        spec = w.response(fl, self.level_dbfs, self.output_channel, noise=False) / P_REF
+        start = 0.0
+        if t_ref is not None and t_ref.lower().startswith("acoustic"):  # relative to the chirp, with pre-roll
+            start = -ACOUSTIC_PREROLL_S
+            spec = spec * np.exp(2j * np.pi * fl * (t_chirp - ACOUSTIC_PREROLL_S))
+        ir = np.fft.irfft(np.concatenate([[0], spec]), n=int(IR_FS))
         m = {
-            "_ir": ir,
+            "_ir": ir, "_start": start,
             "uuid": str(uuidlib.uuid4()), "title": self.next_title, "notes": self.next_notes,
             "startFreq": f0, "endFreq": f1, "timingReference": t_ref or "None",
             "signalToNoisedB": round(snr, 1), "_f": f, "_h": h, "_level": self.level_dbfs,
         }
         self.measurements.append(m)
         return self._ok({"message": "Measurement started"}, status=202)
+
+    def _chirp_arrival(self) -> float | None:
+        """When REW's 5-20 kHz chirp, played on the reference output, reaches the mic; None if the mic can't hear it
+        (reference main muted, not routed, or REW's reference output feeding nothing)."""
+        w = self.world
+        fc = np.arange(CHIRP_HZ[0], CHIRP_HZ[1], 1.0)
+        hc = w.response(fc, self.level_dbfs, self.ref_output_channel, noise=False) / P_REF
+        if 20 * np.log10(np.mean(np.abs(hc)) + 1e-12) < w.noise_floor_spl + CHIRP_HEARD_DB:
+            return None
+        n = 2 * int(CHIRP_HZ[1])
+        spec = np.zeros(n // 2 + 1, complex)
+        spec[fc.astype(int)] = hc
+        return float(np.argmax(np.abs(np.fft.irfft(spec, n=n)))) / n
 
     def _impedance(self):
         """A driver on an impedance jig: Re + voice-coil inductance + the motional resonance."""
@@ -197,6 +231,13 @@ class FakeRew:
                 self.output_channel = body["channel"]
                 return self._ok()
             return self._ok({"channel": self.output_channel})
+        if p == "/audio/java/ref-output-channels":
+            return self._ok(["L", "R"])
+        if p == "/audio/java/ref-output-channel":
+            if meth == "POST":
+                self.ref_output_channel = body["channel"]
+                return self._ok()
+            return self._ok({"channel": self.ref_output_channel})
         if p == "/audio/input-cal":
             if meth == "PUT":
                 self.cal = body
@@ -263,7 +304,10 @@ class FakeRew:
             m = self._find(mm.group(1))
             if m is None:
                 return self._err("no such measurement", status=404)
-            return self._ok({"startTime": 0.0, "sampleRate": IR_FS, "data": encode_floats(m["_ir"])})
+            out = {"startTime": m.get("_start", 0.0), "sampleRate": IR_FS, "data": encode_floats(m["_ir"])}
+            if self.ir_describes_timing:
+                out["timingReference"] = m.get("timingReference", "None")
+            return self._ok(out)
         mm = re.fullmatch(r"/measurements/([^/]+)(/frequency-response)?", p)
         if mm:
             m = self._find(mm.group(1))
@@ -363,6 +407,13 @@ class FakeMiniDSP:
                 return httpx.Response(500, json={"error": "simulated write failure"})
             cfg = json.loads(request.content)
             self.writes.append(cfg)
+            for i in cfg.get("inputs", []):  # routing matrix: minidsp-rs RoutingEntry mute = route disabled
+                for rte in i.get("routing", []):
+                    out = unit.get(rte["index"])
+                    if out is None or i["index"] >= len(out.enabled):
+                        return httpx.Response(500, json={"error": f"no route {i['index']}->{rte['index']}"})
+                    if rte.get("mute") is not None:
+                        out.enabled[i["index"]] = not rte["mute"]
             for o in cfg.get("outputs", []):
                 out = unit.get(o["index"])
                 if out is None:

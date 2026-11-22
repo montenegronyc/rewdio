@@ -159,6 +159,47 @@ Aligning subs to mains needs every measurement on one time base.
   fixes the relative phase up to its sign, so it takes a second `ref+X` sweep with a known extra
   DSP delay on X; the true answer stays put while the mirror solution moves. Two extra sweeps per
   channel, no extra cabling.
+- **Acoustic** (`timing_mode: "acoustic"`): REW plays a short 5–20 kHz chirp on a main before every
+  sweep and times the sweep from the chirp's arrival at the mic. No loopback cable, no combined
+  sweeps (as cheap as loopback), and relative timing between channels at one mic position is exact.
+  It is not absolute across mic moves, so the sub crawl falls back to geometric/magnitude mode.
+
+### Acoustic timing reference: wiring and setup
+
+Open this before setting `timing_mode: "acoustic"` or touching `engine/acoustic.py` / `config_timing.py`.
+
+The sweep and the chirp need separate paths, so a main that is not being measured plays the chirp but
+never the sweep. Rewdio solos channels with the miniDSP **routing matrix** in this mode, not by muting
+alone (muting would silence the reference main and REW would get no chirp):
+
+1. **Cables:** REW's two output channels reach the miniDSP's two inputs as usual (USB or analog):
+   REW output L → miniDSP input 1, REW output R → miniDSP input 2. Nothing else.
+2. **REW:** Java driver (the API has no reference-output setting for ASIO). Rewdio sets the timing
+   reference to Acoustic and the reference output channel itself. Set by hand in REW's Measure dialog:
+   *Ref level trim* (the chirp's level against the sweep; start at 0 dB), *Timing offset* 0, and one
+   sweep per measurement (REW can't repeat sweeps with an acoustic reference).
+3. **Config** (`~/.rewdio/config.json`):
+   ```json
+   "timing_mode": "acoustic",
+   "timing_reference_channel": "L",
+   "acoustic_timing": {
+     "rew_sweep_output": "L", "rew_reference_output": "R",
+     "sweep_input": 0, "reference_input": 1,
+     "listening_routing": {"L": [0], "R": [1], "SUB1": [0, 1]}
+   }
+   ```
+   `timing_reference_channel` must be a main (a sub can't play the chirp; the config refuses it).
+   `listening_routing` is your routing matrix as the miniDSP plugin shows it (0-based inputs per
+   channel); Rewdio writes it back after every run, on every error, and before `unmute_room` or a setup
+   recall. Channels may not set `rew_output_channel` in this mode.
+
+Per sweep: every output muted → sweep input routed only to the measured channels, chirp input only to
+the reference main → measured channels and the reference main unmuted. Protected crossovers, the
+loudness probe and the error path's mute-all are unchanged; the chirp plays through the reference
+main's own crossover. Each sweep is then checked: REW must describe its timing reference as acoustic
+(when it says), and the impulse must first arrive where the room allows (the reference main alone at
+t=0 within `reference_self_tolerance_ms`, any other channel within `max_arrival_offset_ms` of its DSP
+delay). A sweep that fails is rejected and the run stops; the record's `timing_check` says what was checked.
 
 ### Reverse calculation (the sub crawl)
 

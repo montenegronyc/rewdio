@@ -49,6 +49,15 @@
   "crossover_hz": 80.0,
   "timing_mode": "sum_fit",
   "timing_reference_channel": "L",
+  "acoustic_timing": {
+    "rew_sweep_output": "L",
+    "rew_reference_output": "R",
+    "sweep_input": 0,
+    "reference_input": 1,
+    "listening_routing": {"L": [0], "R": [1], "SUB1": [0, 1], "SUB2": [0, 1]},
+    "max_arrival_offset_ms": 40.0,
+    "reference_self_tolerance_ms": 2.0
+  },
   "mic_positions": [
     "MLP"
   ],

@@ -204,6 +204,24 @@ class RewClient:
         if got != name:
             raise RewError(f"REW timing reference is {got!r} after setting {name!r}")
 
+    async def set_ref_output_channel(self, channel: str) -> None:
+        """The output REW plays the acoustic timing chirp on. Java driver only: REW's API documents
+        /audio/java/ref-output-channel (choices at /audio/java/ref-output-channels) and no ASIO equivalent, so on ASIO
+        this raises and the channel must be chosen in REW's Measure dialog. Body {"channel": ...} mirrors
+        /audio/java/output-channel (as other REW clients send it); read back and checked."""
+        if (await self._driver_prefix()).endswith("asio"):
+            raise RewError("REW's API has no timing-reference output setting for ASIO: choose the reference output "
+                           "in REW's Measure dialog and use the Java driver for an automated acoustic reference")
+        r = await self.get("/audio/java/ref-output-channels")
+        choices = [str(c) for c in r] if isinstance(r, list) else []
+        if choices and channel not in choices:
+            raise RewError(f"REW offers no timing reference output {channel!r}; choices: {choices}")
+        await self.post("/audio/java/ref-output-channel", {"channel": channel})
+        got = await self.get("/audio/java/ref-output-channel")
+        got = got.get("channel", got) if isinstance(got, dict) else got
+        if got != channel:
+            raise RewError(f"REW timing reference output is {got!r} after setting {channel!r}")
+
     async def set_protection(self, max_spl_db: float) -> dict:
         current = await self.get("/measure/protection-options") or {}
         want = {"clippingAbort": True, "splLimitAbort": True, "dBSPLLimit": int(round(max_spl_db)),  # int32 in REW
@@ -306,8 +324,16 @@ class RewClient:
     async def impulse_response_timed(self, ident: str) -> tuple[np.ndarray, float, float]:
         """Raw impulse response, sample rate, and the time of its first sample in seconds relative to the
         timing reference (REW's `startTime`). With a loopback reference that time base is absolute."""
+        ir, fs, start, _ = await self.impulse_response_described(ident)
+        return ir, fs, start
+
+    async def impulse_response_described(self, ident: str) -> tuple[np.ndarray, float, float, str | None]:
+        """As impulse_response_timed, plus REW's description of the timing reference the measurement used. REW's
+        API doc says the impulse response carries "a description of the timing reference used" but the field name
+        is not published outside /doc.json: any key naming a timing reference is read; None = REW gave none."""
         r = await self.get(f"/measurements/{ident}/impulse-response", windowed="false", normalised="false")
         if not isinstance(r, dict) or "data" not in r:
             raise RewError(f"REW returned no impulse response for {ident}: {r}")
         fs = float(r.get("sampleRate") or 1.0 / float(r["sampleInterval"]))
-        return decode_floats(r["data"]), fs, float(r.get("startTime") or 0.0)
+        desc = next((str(v) for k, v in r.items() if "timingref" in k.lower().replace("_", "").replace("-", "")), None)
+        return decode_floats(r["data"]), fs, float(r.get("startTime") or 0.0), desc
