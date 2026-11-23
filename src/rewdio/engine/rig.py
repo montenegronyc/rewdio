@@ -10,7 +10,7 @@ from ..config import ChannelKind, SystemConfig, TimingMode
 from ..minidsp.client import MiniDSPClient
 from ..minidsp.state import DspState, OutputState, XoverFilter, xover_sections
 from ..rew.client import RewClient, RewError
-from . import loudness
+from . import acoustic, loudness
 from .store import MeasurementRecord, Session
 
 
@@ -151,6 +151,8 @@ class Rig:
 
     async def apply(self, state: DspState, listen: bool = False) -> None:
         """Write `state` to every channel (clamped). listen=True unmutes everything in the same write."""
+        if listen:
+            await acoustic.restore_listening(self)  # listening never goes through a measurement routing
         new = self._copy()
         for c in self.cfg.channels:
             if c.role not in state.outputs:  # not part of this solution (e.g. a speaker under measurement): keep it
@@ -250,6 +252,7 @@ class Rig:
 
     async def unmute_room(self) -> None:
         """Back to listening: the room system unmuted, a speaker under measurement left as it is."""
+        await acoustic.restore_listening(self)
         await self.unmute([c.role for c in self.cfg.room_channels])
 
     async def unmute_all(self) -> None:
@@ -283,6 +286,11 @@ class Rig:
             raise RewError(f"REW offers no timing reference matching {want!r}; choices: {choices}")
         await self.rew.set_timing_reference(pick)
         report["timing_reference"] = pick
+        if acoustic.active(cfg):  # the chirp's REW output; routes and mutes are set per sweep (acoustic.route)
+            acoustic.require_config(cfg)
+            await self.rew.set_ref_output_channel(cfg.acoustic_timing.rew_reference_output)
+            report["timing_reference"] += f" (chirp on REW {cfg.acoustic_timing.rew_reference_output} → " \
+                                          f"{cfg.timing_reference_channel})"
         self._rew_ready = True
         return report
 
@@ -299,6 +307,10 @@ class Rig:
         if not self._rew_ready:  # e.g. resumed after a restart: REW may have forgotten everything
             await self.prepare_rew()
         await self.rew.set_level(self.level_dbfs)  # the level each record is labelled with is the level played
+        if acoustic.active(self.cfg):  # solo by routing: the reference main must stay live for the chirp
+            await acoustic.route(self, list(roles))
+            await self.rew.set_output_channel(self.cfg.acoustic_timing.rew_sweep_output)
+            return
         await self.solo(roles)
         out_ch = {self.cfg.channel(r).rew_output_channel for r in roles}
         if out_ch != {None}:  # per-speaker REW outputs are configured (validated: all channels or none)
@@ -315,10 +327,18 @@ class Rig:
         """One sweep at the current level, with no loudness guard: call measure() instead."""
         await self.route(roles)
         title = title or f"{'+'.join(roles)} @{position} ({kind}, pass {self.s.workflow.pass_no})"
-        summary = await self.rew.sweep(title, notes=f"rewdio {kind}")
+        timed = acoustic.active(self.cfg)
+        if timed:
+            acoustic.require_reference_path(self)
+        try:
+            summary = await self.rew.sweep(title, notes=f"rewdio {kind}")
+        except RewError as e:
+            raise (acoustic.explain(e) if timed else e) from e
+        snap = DspState(outputs={r: self.s.dsp.get(r).model_copy(deep=True) for r in roles})
+        if timed:  # a sweep without a valid reference is rejected here, before anything uses it
+            extra = {**extra, "timing_check": await acoustic.check_timing(self, summary["uuid"], list(roles), snap)}
         spec = await self.rew.frequency_response(summary["uuid"], ppo=self.cfg.analysis_ppo, smoothing="None")
         resp = Response.from_db_phase(spec.freqs, spec.mag_db, spec.phase_deg, grid=self.grid())
-        snap = DspState(outputs={r: self.s.dsp.get(r).model_copy(deep=True) for r in roles})
         inband = sub_inband_snr_db(self.cfg, resp, list(roles))  # REW's broadband SNR undersells a sub-only sweep
         if inband is not None:
             summary = {**summary, "snr_inband_db": inband}

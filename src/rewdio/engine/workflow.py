@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import acoustic
 from .loudness import NotHeard, TooLoud
 from .phases.base import NeedUser
 from .phases.baseline import BaselinePhase
@@ -62,6 +63,8 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
                 self.wf.history.append({"phase": phase, "next": nxt, "sweeps": len(self.s.measurements)})
                 self.wf.phase = nxt
                 self.s.save()
+            if await acoustic.restore_listening(self.rig):  # however the run ended, never left on a sweep routing
+                log.append("miniDSP routing restored to listening")
             if not was_done and self.cfg.setups.autosave_on_done:
                 from . import dsp_setups
                 saved = dsp_setups.save(self.s, "Calibrated", source="autopilot")
@@ -127,10 +130,16 @@ class Autopilot(SetupPhase, CrawlPhase, BaselinePhase, SolveVerifyPhase):
             log.append(f"could not stop REW ({e}); stop its generator by hand before listening")
         try:
             await self.rig.solo([])
-            return True
         except Exception as e:  # noqa: BLE001
             log.append(f"could not mute the outputs ({e}); turn the amps down or mute the miniDSP by hand")
             return False
+        try:  # muted first, then the listening routing back (acoustic timing re-routes inputs per sweep)
+            if await acoustic.restore_listening(self.rig):
+                log.append("miniDSP routing restored to listening (outputs still muted)")
+        except Exception as e:  # noqa: BLE001
+            log.append(f"could not restore the miniDSP routing ({e}); set it back in the miniDSP plugin before "
+                       "listening")
+        return True
 
     def _report(self, status: str, log: list[str], **kw) -> dict:
         keep = self.cfg.dashboard.log_lines

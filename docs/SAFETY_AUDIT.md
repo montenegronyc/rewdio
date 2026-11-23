@@ -49,6 +49,12 @@ Fixed 2026-11-21, found while testing the fixes above:
   (e.g. Out4 with one sub) played every sweep. Now every DSP write also mutes the outputs no channel uses
   (`mute_unlisted_outputs`, on by default; preflight logs which), and listening doesn't unmute them.
 
+Added 2026-11-22, **acoustic timing** (`engine/acoustic.py`, README "Acoustic timing reference"): the one mode that
+writes the miniDSP **input routing matrix**. Routes change only with every output muted (shadow set to unknown before
+the write, so a failed write is redone); the reference main stays unmuted for REW's chirp but is routed only from the
+chirp input; the listening routing is written back after a run, on every error (after the mute-all) and before
+`unmute_room` / setup recall. Route gains are never written. Tests: `tests/test_acoustic_timing.py`.
+
 ## What reached the speakers tonight
 
 - The loud sweeps were mains-only (sub muted during gain staging), with Rewdio's 80 Hz LR4 high-pass written at

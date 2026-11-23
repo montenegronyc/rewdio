@@ -118,7 +118,17 @@ class DspOutput:
     xover: list[Biquad] = field(default_factory=list)  # active crossover: the scenario's own until Rewdio writes one
     xslots: dict[tuple[int, int], Biquad] = field(default_factory=dict)  # crossover (group, index) as written
     xbypass: dict[int, bool] = field(default_factory=dict)
-    routing: tuple[float, float] = (1.0, 0.0)  # weights of DSP inputs 0 (L) and 1 (R)
+    routing: tuple[float, float] = (1.0, 0.0)  # weights of DSP inputs 0 (L) and 1 (R); 0 = route off
+    enabled: list[bool] = field(default_factory=list)  # routing-matrix switches per input (from `routing` at start)
+
+    def __post_init__(self):
+        if not self.enabled:
+            self.enabled = [w != 0 for w in self.routing]
+
+    def mix(self, drive: tuple[float, float]) -> float:
+        """How much of REW's output reaches this output through the routing matrix. A route switched on that the
+        scenario had off plays at unity, as the miniDSP plugin's matrix cell does by default."""
+        return sum((w or 1.0) * d * on for w, d, on in zip(self.routing, drive, self.enabled))
 
     def transfer(self, f: np.ndarray, fs: float) -> np.ndarray:
         h = np.full(f.shape, 10 ** (self.gain_db / 20), complex) * (-1 if self.invert else 1)
@@ -157,7 +167,7 @@ class World:
         total = np.zeros(f.shape, complex)
         for spk in self.speakers:
             out = self.unit(spk.dsp_device)[spk.dsp_output]
-            mix = out.routing[0] * drv[0] + out.routing[1] * drv[1]
+            mix = out.mix(drv)
             if out.mute or mix == 0:
                 continue
             total += mix * out.transfer(f, self.fs) * spk.response(f, self.fs) * self.room.transfer(spk.pos, self.mic, f)

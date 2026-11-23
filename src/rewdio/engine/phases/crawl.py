@@ -142,7 +142,9 @@ class CrawlPhase(PhaseBase):
         t = self.cfg.tuning
         cands = [Candidate(lab, {seat: self.s.response(v["id"])}, tuple(v["xyz"]) if v.get("xyz") else None)
                  for lab, v in done.items()]
-        if self.cfg.timing_mode in (TimingMode.LOOPBACK, TimingMode.ACOUSTIC):
+        # Only a loopback is absolute across crawl spots. The acoustic reference times each sweep from the chirp's
+        # arrival at the mic, and the mic moves between spots, so each spot has its own unknown offset.
+        if self.cfg.timing_mode == TimingMode.LOOPBACK:
             mode = "absolute"
         elif all(c.xyz for c in cands) and seat in self.cfg.seat_xyz:
             mode = "geometric"

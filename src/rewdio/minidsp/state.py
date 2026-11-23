@@ -100,6 +100,9 @@ class OutputState(BaseModel):
 class DspState(BaseModel):
     outputs: dict[str, OutputState] = Field(default_factory=dict, description="keyed by channel role")
     master_volume_db: float | None = None
+    routing: dict[str, list[int]] | None = Field(
+        default=None, description="Acoustic timing only: the inputs Rewdio last routed to each channel (role -> "
+                                  "0-based inputs); None = the user's own routing, never touched")
     unsynced: bool = Field(default=False, description="a write failed part-way: the hardware may differ from this "
                                                       "state, so the next write re-sends everything (survives restarts)")
 

@@ -18,6 +18,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .config_safety import LoudnessGuard, enforce_safety
+from .config_timing import AcousticTiming, check_acoustic
 from .minidsp.state import XoverFilter
 
 
@@ -33,7 +34,7 @@ class ChannelKind(str, Enum):
 
 class TimingMode(str, Enum):
     LOOPBACK = "loopback"  # REW loopback timing reference: absolute phase
-    ACOUSTIC = "acoustic"  # REW acoustic timing reference (user-configured in REW)
+    ACOUSTIC = "acoustic"  # REW acoustic timing reference: a chirp on a main before every sweep (config_timing.py)
     SUM_FIT = "sum_fit"  # no reference: relative timing fitted from combined sweeps
 
 
@@ -366,6 +367,7 @@ class SystemConfig(_Strict):
     crossover_hz: float = Field(description="Nominal sub/mains crossover already set in the DSP")
     timing_mode: TimingMode
     timing_reference_channel: str
+    acoustic_timing: AcousticTiming
     mic_positions: list[str] = Field(description="Seats to measure each pass; first is the main listening position")
     do_sub_crawl: bool
     crawl_positions: int = Field(ge=3, le=40)
@@ -414,6 +416,8 @@ class SystemConfig(_Strict):
         if not self.mic_positions:
             raise ValueError("need at least one mic position")
         enforce_safety(self)
+        if self.timing_mode == TimingMode.ACOUSTIC:
+            check_acoustic(self)
         if self.balance.enabled and len(self.mains) >= 2 and not set(self.balance.pair) <= set(roles):
             raise ValueError(f"balance.pair {self.balance.pair} must name two channels")
         return self
