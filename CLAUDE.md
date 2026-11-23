@@ -28,6 +28,10 @@ git show origin/inbox:threads/<file>.md   # read any thread with new entries
 - Open README.md "Acoustic timing reference" before enabling `timing_mode: "acoustic"` or touching
   `engine/acoustic.py`, `config_timing.py` or miniDSP input routing: wiring, REW settings, and why soloing there is
   done by routing rather than muting.
+- Open `cal_files/2026-11-23-room-numbers-vs-last-year.md` (local, untracked) before re-measuring the room or comparing a
+  new calibration with earlier ones: numbers to watch with targets, year-on-year tables, and where the REW exports are.
+  `cal_files/2026-11-21-calibration-report.md` holds the settings that were tuned by ear and why.
+
 - Tests: `uv sync --extra dev && uv run pytest -q` (the full suite takes about 3.5 minutes; the
   speaker and FRD tests run in seconds: `uv run pytest -q tests/test_speaker_capture.py tests/test_frd.py`).
 - Speaker measurement work (2-way drivers, VituixCAD, SoundSible handoff) is described in
